@@ -57,6 +57,11 @@ def after_scan(started: datetime, notify_new: bool) -> None:
 
 
 def main(mode: str) -> int:
+    import os
+    from .config import IS_CLOUD
+    if os.getenv("GITHUB_ACTIONS") and not IS_CLOUD:
+        print("DATABASE_URL secret is not set in GitHub (Settings > Secrets and variables > Actions) - nothing to do.")
+        return 1
     db, _ = startup_tasks(full=True)
     db.close()
     started = datetime.utcnow()
