@@ -71,6 +71,8 @@ def build_job(row: dict, page_html: str | None) -> RawJob:
     if page_html:
         soup = BeautifulSoup(page_html, "lxml")
         page_text = soup.get_text("\n", strip=True)
+        # EDJOIN shows the contact's email as a mailto link; keep it in the text so the "printed on the page" check sees it.
+        page_text += "\n" + " ".join(a["href"][7:].split("?")[0] for a in soup.select('a[href^="mailto:"]'))
         for p in postings_from_html(page_html):
             description = html_to_text(p.get("description")) or description
         m = re.search(r"Application Deadline\n(.+)", page_text)

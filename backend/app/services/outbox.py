@@ -18,7 +18,7 @@ from sqlalchemy import func, select, update
 from ..models import Alert, Application, ApplicationEvent, Job, OutboxEmail, Resume, User
 from .applied import applied_job_ids
 from .contacts import email_usable, ensure_honorific
-from .generators import application_email, business_days_after, school_principal
+from .generators import application_email, business_days_after, pick_recipient, school_principal
 from .ingest import profile_dict
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
@@ -89,19 +89,20 @@ def queue_new(db) -> int:
             continue
         if not MATH_TITLE.search(job.job_title or ""):
             continue  # the email says "the mathematics teaching position" - only math jobs get one
-        principal, _link = school_principal(job)
-        if not principal or not email_usable(principal):
+        # Principal first; otherwise the hiring contact named in the posting; otherwise the district's HR contact.
+        principal, role, _link = pick_recipient(job)
+        if not principal:
             continue
         to = principal.email.strip().lower()
         if to in recent_to:
             continue
         em = application_email(job, profile)
         db.add(OutboxEmail(user_id=user.id, job_id=job.id, contact_id=principal.id, to_email=to,
-                           to_name=principal.full_name, subject=em["subject"], body=em["body"],
+                           to_name=principal.full_name, to_role=role, subject=em["subject"], body=em["body"],
                            attach_resume=bool(cfg.get("attach_resume", True))))
         school = (job.school.name if job.school else None) or job.employer_name or ""
         db.add(Alert(user_id=user.id, job_id=job.id, title="Email ready for your approval",
-                     message=f"{job.job_title} — {school} ({job.state}). Email to Principal {principal.full_name} "
+                     message=f"{job.job_title} — {school} ({job.state}). Email to {principal.full_name} ({role}) "
                              f"<{to}> is waiting in the Outbox. Nothing is sent until you approve it."))
         recent_to.add(to)
         queued_jobs.add(job.id)

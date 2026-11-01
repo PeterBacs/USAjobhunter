@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/outbox", tags=["outbox"])
 
 def item_out(e: OutboxEmail) -> dict:
     j = e.job
-    return {"id": e.id, "job_id": e.job_id, "to_email": e.to_email, "to_name": e.to_name, "subject": e.subject,
+    return {"id": e.id, "job_id": e.job_id, "to_email": e.to_email, "to_name": e.to_name, "to_role": e.to_role or "Principal", "subject": e.subject,
             "body": e.body, "attach_resume": e.attach_resume, "status": e.status, "error": e.error,
             "created_at": e.created_at.isoformat() if e.created_at else None,
             "sent_at": e.sent_at.isoformat() if e.sent_at else None,

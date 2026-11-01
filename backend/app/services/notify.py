@@ -71,8 +71,8 @@ def emails_waiting(db, items: list[OutboxEmail]) -> bool:
     for e in items:
         j = e.job
         school = (j.school.name if j and j.school else None) or (j.employer_name if j else "")
-        rows_t.append(f"- To Principal {e.to_name} <{e.to_email}> — {j.job_title if j else ''}, {school}")
-        rows_h.append(f"<li>To <b>Principal {escape(e.to_name or '')}</b> &lt;{escape(e.to_email)}&gt; — "
+        rows_t.append(f"- To {e.to_name} ({e.to_role or 'Principal'}) <{e.to_email}> — {j.job_title if j else ''}, {school}")
+        rows_h.append(f"<li>To <b>{escape(e.to_name or '')}</b> ({escape(e.to_role or 'Principal')}) &lt;{escape(e.to_email)}&gt; — "
                       f"{escape(j.job_title if j else '')}, {escape(school)}</li>")
     text = ("These application emails were prepared for new openings. Nothing is sent until you approve each one.\n\n"
             + "\n".join(rows_t) + f"\n\nReview and approve: {url}")

@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from ..models import AILookup, Job
 from . import contacts as contact_svc
 from .ai_contacts import _official_for, _reg_domain, page_text_from_html, verify_and_save
+from .websites import domain_matches_name
 
 log = logging.getLogger("jobhunter.finder")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -223,25 +224,123 @@ def run_for_new_jobs(db, client_http, since: datetime) -> dict:
     return {"finder_lookups": done, "finder_emails_confirmed": found}
 
 
-def confirm_posting_emails(db) -> int:
-    """Cloud rule for emails the school printed in its own job posting (e.g. SchoolSpring "contact: Principal ..."):
-    usable when the address is on the district's / school's official website domain. Typos and personal addresses
-    (the usual cause of bounces) fail this check. Returns how many contacts were confirmed."""
+def _has_mail_server(domain: str) -> bool:
+    try:
+        import dns.resolver
+        return bool(dns.resolver.resolve(domain, "MX", lifetime=10))
+    except Exception:
+        return False
+
+
+_domain_cache: dict = {}
+
+
+def domain_is_districts(db, client_http, job: Job, email_domain: str) -> bool:
+    """True when an email domain belongs to this job's district / school: it is the saved website's domain, or the
+    domain's own website names the district (e.g. hlpusd.org for 'Hacienda La Puente Unified'), and it receives mail.
+    Saves the district's website when it was unknown."""
+    reg = _reg_domain(email_domain)
+    sites = [s for s in [job.school.website if job.school else None, job.district.website if job.district else None] if s]
+    if any(reg == _reg_domain(urlparse(s).netloc) for s in sites):
+        return True
+    names = [n for n in [job.district.name if job.district else None, job.employer_name] if n]
+    key = (reg, tuple(names))
+    if key in _domain_cache:
+        return _domain_cache[key]
+    ok = False
+    if names and any(domain_matches_name(reg, n) for n in names) and _has_mail_server(reg):
+        ok = True
+    elif names and _has_mail_server(reg):
+        for url in (f"https://www.{reg}/", f"https://{reg}/"):
+            res = client_http.get(url, source_name="District domain check")
+            if not res.ok:
+                continue
+            soup = BeautifulSoup(res.text, "lxml")
+            head = " ".join(filter(None, [soup.title.get_text(" ") if soup.title else "",
+                                          " ".join(h.get_text(" ") for h in soup.select("h1")[:2])])).lower()
+            for n in names:
+                toks = _school_tokens(n)
+                if toks and all(t in head for t in toks):
+                    ok = True
+            if ok:
+                if job.district and not job.district.website:
+                    job.district.website = res.final_url or url
+                break
+    _domain_cache[key] = ok
+    return ok
+
+
+def confirm_posting_emails(db, client_http=None) -> int:
+    """Cloud rule for emails the school printed in its own job posting (SchoolSpring / EDJOIN "Contact: ..."):
+    usable when the address is printed in the official posting and its domain belongs to the district (see
+    domain_is_districts). Typos and personal addresses (the usual cause of bounces) fail this check."""
     from ..models import Contact, JobContact
+    from .http import PoliteClient
+    client_http = client_http or PoliteClient()
     n = 0
     rows = db.execute(select(Contact, Job).join(JobContact, JobContact.contact_id == Contact.id).join(Job, Job.id == JobContact.job_id)
-                      .where(Contact.email.is_not(None), Contact.deleted_at.is_(None), Contact.mailbox_status.is_(None),
-                             Contact.email_status.in_(["VERIFIED", "PUBLISHED_ELSEWHERE"]), Job.is_demo.is_(False))).all()
+                      .where(Contact.email.is_not(None), Contact.deleted_at.is_(None),
+                             (Contact.mailbox_status.is_(None)) | (Contact.mailbox_status.in_(["CATCH_ALL", "UNKNOWN"])),
+                             Contact.email_status.in_(["VERIFIED", "PUBLISHED_ELSEWHERE"]), Job.is_demo.is_(False),
+                             Job.job_status == "ACTIVE")).all()
     done = set()
     for c, job in rows:
         if c.id in done:
             continue
-        sites = [s for s in [job.school.website if job.school else None, job.district.website if job.district else None] if s]
-        dom = c.email.split("@", 1)[-1]
-        if sites and any(_reg_domain(dom) == _reg_domain(urlparse(s).netloc) for s in sites):
+        done.add(c.id)
+        if domain_is_districts(db, client_http, job, c.email.split("@", 1)[-1]):
             c.mailbox_status, c.mailbox_checked_at = "OFFICIAL_PAGE", datetime.utcnow()
             c.mailbox_detail = "Printed in the school's official job posting, on the district's own email domain"
-            done.add(c.id)
             n += 1
     db.commit()
     return n
+
+
+def recheck_posting_email_status(db) -> int:
+    """Emails taken from a posting's mailto link were once marked DO_NOT_USE because the address wasn't in the
+    visible text. They came from the official posting itself, so they are re-marked VERIFIED."""
+    from ..models import Contact
+    n = 0
+    for c in db.scalars(select(Contact).where(Contact.email_status == "DO_NOT_USE", Contact.email.is_not(None),
+                                              Contact.source_url.like("%edjoin.org/Home/JobPosting/%"))).all():
+        c.email_status = "VERIFIED"
+        n += 1
+    db.commit()
+    return n
+
+
+def contacts_from_posting(db, client_http, job: Job) -> list[dict]:
+    """Free Gemini reads the job posting's own text and picks out the principal / hiring contact it names
+    ("Questions? Contact Principal Jane Doe at jdoe@district.org"). Kept only when the email is printed in that text,
+    the person's name is too, the address is the person's own, and the domain belongs to the district."""
+    from .ai_contacts import email_matches_name
+    text = "\n".join(filter(None, [job.job_description, job.requirements]))
+    if not text or not EMAIL_IN_TEXT.search(text) or not GEMINI_KEY:
+        return []
+    from .generators import _real_school_name
+    cands = _ask_gemini(_real_school_name(job), job.district.name if job.district else job.employer_name,
+                        job.official_job_url or "", text)
+    low = text.lower()
+    kept = []
+    for c in cands:
+        email = str(c.get("email") or "").strip().lower()
+        name = re.sub(r"\s+", " ", str(c.get("name") or "")).strip()
+        if (not email or email not in low or len(name.split()) < 2 or name.split()[-1].lower() not in low
+                or not email_matches_name(email, name)
+                or not domain_is_districts(db, client_http, job, email.split("@", 1)[-1])):
+            continue
+        role = "SCHOOL_PRINCIPAL" if str(c.get("role")).upper() == "PRINCIPAL" else "VACANCY_CONTACT"
+        contact = contact_svc.upsert_contact(
+            db, full_name=name, title=str(c.get("title") or "") or ("Principal" if role == "SCHOOL_PRINCIPAL" else None),
+            organization=job.employer_name, email=email, phone=None, source_url=job.official_job_url,
+            district_id=job.district_id, school_id=job.school_id if role == "SCHOOL_PRINCIPAL" else None,
+            page_text=text, source_type="OFFICIAL_ATS")
+        if not contact or contact.deleted_at:
+            continue
+        contact.email_status, contact.verification_status = "VERIFIED", "VERIFIED"
+        contact.mailbox_status, contact.mailbox_checked_at = "OFFICIAL_PAGE", datetime.utcnow()
+        contact.mailbox_detail = "Named with this email in the school's official job posting (read by Gemini, checked by the app)"
+        contact_svc.link(db, job, contact, role, "HIGH", job.official_job_url, None)
+        kept.append({"role": role, "name": name, "email": email})
+    db.commit()
+    return kept

@@ -1379,7 +1379,7 @@ function outboxCard(e, tab, ready) {
     ${e.job_status === "CLOSED" && pending ? `<div class="notice warn small" style="margin-top:8px">This posting has closed since the email was prepared — it won't be sent. Skip it.</div>`
       : e.status === "FAILED" && e.error ? `<div class="notice warn small" style="margin-top:8px"><b>Not sent:</b> ${esc(e.error)}</div>`
       : e.status === "SKIPPED" && e.error ? `<div class="tiny muted" style="margin-top:6px">${esc(e.error)}</div>` : ""}
-    <div class="small" style="margin-top:8px"><b>To:</b> Principal ${esc(e.to_name || "")} &lt;${esc(e.to_email)}&gt; <span class="badge b-good">✓ Named by an official source</span> <span class="badge b-good">✓ Mailbox confirmed</span></div>
+    <div class="small" style="margin-top:8px"><b>To:</b> ${esc(e.to_name || "")} <span class="muted">(${esc(e.to_role || "Principal")})</span> &lt;${esc(e.to_email)}&gt; <span class="badge b-good">✓ Named by an official source</span> <span class="badge b-good">✓ Mailbox confirmed</span></div>
     ${pending ? `<label class="small" style="display:grid;gap:3px;margin-top:8px">Subject<input class="ob-subj" value="${esc(e.subject)}"></label>
       <label class="small" style="display:grid;gap:3px;margin-top:6px">Message<textarea class="ob-body" style="min-height:220px">${esc(e.body)}</textarea></label>
       <label class="small row" style="gap:6px;margin-top:6px;cursor:pointer"><input type="checkbox" class="ob-resume" ${e.attach_resume ? "checked" : ""} style="width:auto"> Attach my résumé</label>`
@@ -1393,7 +1393,7 @@ function outboxCard(e, tab, ready) {
 window.obApprove = async (id, btn) => {
   const card = btn.closest("[data-ob]");
   const e = S.outbox.items.find((x) => x.id === id);
-  if (!confirm(`Send this email now from your Gmail to Principal ${e.to_name} <${e.to_email}>?`)) return;
+  if (!confirm(`Send this email now from your Gmail to ${e.to_name} (${e.to_role || "Principal"}) <${e.to_email}>?`)) return;
   btn.disabled = true; btn.textContent = "Sending…";
   try {
     await api(`/api/outbox/${id}`, { method: "PUT", body: { subject: $(".ob-subj", card).value, body: $(".ob-body", card).value, attach_resume: $(".ob-resume", card).checked } });

@@ -120,6 +120,28 @@ def school_principal(job):
     return best or (None, None)
 
 
+VACANCY_RELS = ("JOB_POSTER", "VACANCY_CONTACT", "HIRING_MANAGER")
+HR_RELS = ("DISTRICT_RECRUITER", "RECRUITER", "REGIONAL_RECRUITER", "TALENT_PARTNER", "HR_ADMINISTRATOR", "HR")
+
+
+def pick_recipient(job):
+    """Who the application email goes to: the school's principal; otherwise the person the official posting names
+    as its contact (they handle this exact vacancy); otherwise the district's named HR / recruiting contact.
+    Only named people with a confirmed email. Returns (contact, label, link) or (None, None, None)."""
+    from .contacts import email_usable
+    p, plink = school_principal(job)
+    if p and email_usable(p):
+        return p, "Principal", plink
+    for rels, label in ((VACANCY_RELS, "Hiring contact named in the job posting"),
+                        (HR_RELS, "District HR / recruiting contact")):
+        for link in sorted(job.contact_links, key=lambda l: {"HIGH": 0, "MEDIUM": 1}.get(l.confidence, 2)):
+            c = link.contact
+            if (c and not c.deleted_at and link.relationship_type in rels and link.confidence in ("HIGH", "MEDIUM")
+                    and len(re.sub(r"\s+", " ", c.full_name or "").strip().split()) >= 2 and email_usable(c)):
+                return c, ("Principal" if contact_type_for(c.title) == "PRINCIPAL" else label), link
+    return None, None, None
+
+
 def greeting_for(contact) -> str:
     """Always the person's complete name, with no title: 'Dear Lea Ann Frank,' (the user's choice - safest)."""
     full = re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", re.sub(r"\s+", " ", contact.full_name or "").strip())
@@ -133,12 +155,15 @@ def _possessive(name: str) -> str:
 def application_email(job, profile: dict) -> dict:
     rec = recommend_addressee(job)
     name = profile.get("full_name") or "[Your name]"
-    principal, plink = school_principal(job)
+    principal, role, plink = pick_recipient(job)
+    if not principal:
+        principal, plink = school_principal(job)
+        role = "Principal" if principal else None
     if principal:
         greeting = greeting_for(principal)
         pname = re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", re.sub(r"\s+", " ", principal.full_name).strip())
-        greeting_note = (f"Greeting to the school's principal, {pname}, by complete name (named in the official source"
-                         + (f": {plink.evidence_url}" if plink.evidence_url else "") + ").")
+        greeting_note = (f"Addressed to {pname} ({role.lower()}) by complete name - named in the official source"
+                         + (f": {plink.evidence_url}" if plink and plink.evidence_url else "") + ".")
     else:
         greeting = "Dear Principal,"
         greeting_note = "The school's principal hasn't been confirmed from an official source, so the greeting is \"Dear Principal,\" (no name guessed)."
@@ -146,6 +171,9 @@ def application_email(job, profile: dict) -> dict:
     subject = f"Application – {job.job_title} – {name}"
     c = rec.get("contact") if rec.get("recommended") else None
     to = c["email"] if c and c.get("email") and c.get("email_status") == "VERIFIED" and c.get("email_usable") else None
+    from .contacts import email_usable
+    if principal and email_usable(principal):
+        to = principal.email   # the same person the greeting names
     mailbox_note = None
     if c and c.get("has_unconfirmed_email"):
         why = ("its mail server says that mailbox does not exist"

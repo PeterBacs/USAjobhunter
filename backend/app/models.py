@@ -403,6 +403,7 @@ class OutboxEmail(Base):
     contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id"))
     to_email: Mapped[str] = mapped_column(String(255))
     to_name: Mapped[str | None] = mapped_column(String(255))
+    to_role: Mapped[str | None] = mapped_column(String(80))   # Principal / hiring contact in the posting / district HR
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
     attach_resume: Mapped[bool] = mapped_column(Boolean, default=True)
