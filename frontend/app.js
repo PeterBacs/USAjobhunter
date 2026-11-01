@@ -1402,10 +1402,8 @@ window.obApprove = async (id, btn) => {
     await api(`/api/outbox/${id}`, { method: "PUT", body: { subject: $(".ob-subj", card).value, body: $(".ob-body", card).value, attach_resume: $(".ob-resume", card).checked } });
     await api(`/api/outbox/${id}/approve`, { method: "POST" });
     S.facets = null;
-    toast(`Sent to ${e.to_name} — marked applied. Opening Applications…`, 5000);
-    checkOutbox(false);
-    location.hash = "#/applications";   // the sent job now appears in the Applications table
-    return;
+    // Stay in the Outbox: the job is already added to Applications (marked applied) in the background.
+    toast(`✓ Sent to ${e.to_name} — added to Applications as applied.`, 5000);
   } catch (err) { toast(err.message, 8000); }
   checkOutbox(false); viewOutbox();
 };
