@@ -176,8 +176,8 @@ def greeting_for(contact) -> str:
 SUBJECT_PATTERNS = [
     ("mathematics", r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc"),
     ("physics", r"physics"),
-    ("computer science", r"computer science|comp\.? sci|\bcoding\b|programming|\bap csp?\b"),
     ("robotics", r"robotic"),
+    ("computer science", r"computer science|comp\.? sci|\bcoding\b|programming|\bap csp?\b"),
     ("engineering", r"engineer|\bpltw\b|project lead the way"),
     ("STEM", r"\bstem\b|s\.t\.e\.m"),
 ]
