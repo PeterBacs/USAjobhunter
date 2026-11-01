@@ -60,8 +60,13 @@ def after_scan(started: datetime, notify_new: bool) -> None:
 def main(mode: str) -> int:
     import os
     from .config import IS_CLOUD
+    if os.getenv("GITHUB_ACTIONS"):
+        # Show which secrets this run can see (names only, never values).
+        for name in ("DATABASE_URL", "GEMINI_API_KEY", "JH_GMAIL_ADDRESS", "JH_GMAIL_APP_PASSWORD", "JH_NOTIFY_EMAIL"):
+            print(f"  secret {name}: {'found' if os.getenv(name) else 'MISSING'}")
     if os.getenv("GITHUB_ACTIONS") and not IS_CLOUD:
-        print("DATABASE_URL secret is not set in GitHub (Settings > Secrets and variables > Actions) - nothing to do.")
+        print("DATABASE_URL secret is missing or isn't a postgresql:// address. Add it under GitHub > Settings > "
+              "Secrets and variables > Actions > Repository secrets - nothing to do.")
         return 1
     db, _ = startup_tasks(full=True)
     db.close()
