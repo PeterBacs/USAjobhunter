@@ -130,21 +130,45 @@ def pick_recipient(job):
     Only named people with a confirmed email. Returns (contact, label, link) or (None, None, None)."""
     from .contacts import email_usable
     p, plink = school_principal(job)
-    if p and email_usable(p):
+    if p and email_usable(p) and is_person(p):
         return p, "Principal", plink
     for rels, label in ((VACANCY_RELS, "Hiring contact named in the job posting"),
                         (HR_RELS, "District HR / recruiting contact")):
         for link in sorted(job.contact_links, key=lambda l: {"HIGH": 0, "MEDIUM": 1}.get(l.confidence, 2)):
             c = link.contact
             if (c and not c.deleted_at and link.relationship_type in rels and link.confidence in ("HIGH", "MEDIUM")
-                    and len(re.sub(r"\s+", " ", c.full_name or "").strip().split()) >= 2 and email_usable(c)):
+                    and is_person(c) and email_usable(c)):
                 return c, ("Principal" if contact_type_for(c.title) == "PRINCIPAL" else label), link
     return None, None, None
 
 
+ORG_WORDS = re.compile(r"\b(school|schools|district|charter|charters|academy|department|office|human|resources|"
+                       r"recruit\w*|personnel|county|unified|isd|usd|board|services|center|team|staff|hr|admin\w*|"
+                       r"payroll|careers?|jobs?|employment|education)\b", re.I)
+GENERIC_MAILBOX = re.compile(r"^(hr|jobs?|careers?|recruit\w*|employment|personnel|substitutes?|subs|info|office|"
+                             r"admin\w*|hiring|apply|applications?|teach\w*|staff\w*|frontdesk|principal|"
+                             r"human\.?resources|humanresources|talent|certified|classified|noreply|no-reply)\d*$", re.I)
+
+
+def clean_person_name(name: str | None) -> str:
+    """'Kelli Martin, Deputy Superintendent' -> 'Kelli Martin'; 'Dr. Jane Smith' -> 'Jane Smith'."""
+    n = re.sub(r"\s+", " ", name or "").strip().split(",")[0].strip()
+    return re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", n)
+
+
+def is_person(contact) -> bool:
+    """A real person with their own mailbox: first + last name, no digits or organisation words, and not a shared
+    department inbox (hr@, jobs@, substitutes@ ...)."""
+    name = clean_person_name(contact.full_name)
+    if len(name.split()) < 2 or re.search(r"\d", name) or ORG_WORDS.search(name):
+        return False
+    local = (contact.email or "").split("@", 1)[0].lower()
+    return not GENERIC_MAILBOX.match(local)
+
+
 def greeting_for(contact) -> str:
     """Always the person's complete name, with no title: 'Dear Lea Ann Frank,' (the user's choice - safest)."""
-    full = re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", re.sub(r"\s+", " ", contact.full_name or "").strip())
+    full = clean_person_name(contact.full_name)
     return f"Dear {full}," if full else "Dear Principal,"
 
 

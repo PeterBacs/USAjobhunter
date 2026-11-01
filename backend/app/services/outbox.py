@@ -77,6 +77,13 @@ def queue_new(db) -> int:
         if e.job and not MATH_TITLE.search(e.job.job_title or ""):
             e.status, e.decided_at, e.error = "SKIPPED", datetime.utcnow(), "Skipped automatically: not a math teaching job"
             continue
+        from ..models import Contact
+        from .generators import is_person
+        ct = db.get(Contact, e.contact_id) if e.contact_id else None
+        if ct and not is_person(ct):
+            e.status, e.decided_at = "SKIPPED", datetime.utcnow()
+            e.error = "Skipped automatically: not a named person's own mailbox (shared inbox or organisation)"
+            continue
         if e.job and (e.job.job_status == "CLOSED" or e.job_id in applied):
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: the posting closed" if e.job.job_status == "CLOSED" else "Skipped automatically: you already applied"
