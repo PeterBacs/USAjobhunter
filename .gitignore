@@ -1,0 +1,14 @@
+# Personal data and secrets never go to GitHub
+data/
+*.db
+*.db-*
+.secret_key
+.env
+.env.*
+!.env.example
+# Local tools
+.venv/
+__pycache__/
+*.pyc
+.vercel/
+.claude/

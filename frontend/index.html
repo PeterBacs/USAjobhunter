@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USA Job Hunter</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3a5f'/><text x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'>∑</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="auth" class="auth hidden"></div>
+<div id="shell" class="shell hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><span class="logo">∑</span><div><b>USA JOB HUNTER</b><small>Verified U.S. Math Teaching Jobs</small></div></div>
+    <nav id="nav"></nav>
+    <div class="side-foot"><button class="linkbtn" id="logout">Sign out</button></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="iconbtn menu" id="menuBtn" aria-label="Menu">☰</button>
+      <div class="search"><input id="globalSearch" placeholder="Search jobs, schools, districts, cities…" autocomplete="off"></div>
+      <div class="top-actions">
+        <span id="scanPill" class="pill hidden"></span>
+        <button class="btn primary" id="scanNow">SCAN USA NOW</button>
+        <button class="btn" id="uploadResumeBtn">UPLOAD RESUME</button>
+        <input type="file" id="resumeFile" accept=".pdf,.docx,.txt" hidden>
+      </div>
+    </header>
+    <main id="view" class="view"></main>
+  </div>
+</div>
+<div id="drawer" class="drawer hidden" aria-hidden="true"><div class="drawer-scrim" data-close></div><section class="drawer-panel" id="drawerPanel"></section></div>
+<div id="modal" class="modal hidden"><div class="modal-scrim" data-close></div><section class="modal-panel" id="modalPanel"></section></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
