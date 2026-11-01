@@ -91,5 +91,25 @@ def main(mode: str) -> int:
     return 0
 
 
+def _annotate(level: str, msg: str):
+    """GitHub shows ::error:: / ::notice:: lines on the run's summary page (no need to open the log)."""
+    import os
+    if os.getenv("GITHUB_ACTIONS"):
+        print(f"::{level} title=USA Job Hunter::{msg}".replace("\n", " | "))
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "scan"))
+    import os
+    import traceback
+    missing = [n for n in ("DATABASE_URL", "GEMINI_API_KEY", "JH_GMAIL_ADDRESS", "JH_GMAIL_APP_PASSWORD", "JH_NOTIFY_EMAIL")
+               if not os.getenv(n)]
+    if os.getenv("GITHUB_ACTIONS"):
+        _annotate("notice", "Secrets missing: " + (", ".join(missing) if missing else "none - all 5 found"))
+    try:
+        code = main(sys.argv[1] if len(sys.argv) > 1 else "scan")
+    except Exception as e:
+        _annotate("error", f"{type(e).__name__}: {str(e)[:300]} | {traceback.format_exc().splitlines()[-3][:200]}")
+        raise
+    if code:
+        _annotate("error", f"Stopped with code {code}" + (f" - missing secrets: {', '.join(missing)}" if missing else ""))
+    sys.exit(code)
