@@ -99,7 +99,7 @@ def cover_letter(job, profile: dict, today: date | None = None) -> dict:
     return {"text": body, "addressee": rec}
 
 
-PORTFOLIO_URL = "https://engrpeterbacaniportfolio.netlify.app/"
+PORTFOLIO_URL = "https://pjportfolio-phi.vercel.app/"
 
 
 def school_principal(job):
