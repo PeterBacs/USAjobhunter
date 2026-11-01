@@ -102,7 +102,8 @@ async function showAuth() {
       ${setup ? `<label>Full name<input name="full_name" required></label>` : ""}
       <label>Email<input name="email" type="email" required autocomplete="username"></label>
       <label>Password<input name="password" type="password" minlength="8" required autocomplete="${setup ? "new-password" : "current-password"}"></label>
-      <button class="btn primary">${setup ? "Create account" : "Sign in"}</button>
+      ${st.awaiting_data ? `<div class="notice warn small">Your account isn't online yet. On your computer, double-click <b>Upload my data to the cloud.bat</b> (in the JOB HUNTER folder), paste the DATABASE_URL from Vercel &gt; Storage, and wait for "Done". Then sign in here with the same email and password as on your computer.</div>` : ""}
+            <button class="btn primary">${setup ? "Create account" : "Sign in"}</button>
       <div class="muted small" id="authErr"></div>
     </form></div>`;
   $("#authForm").onsubmit = async (e) => {
