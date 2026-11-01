@@ -40,19 +40,27 @@ def after_scan(started: datetime, notify_new: bool) -> None:
         http = PoliteClient()
         log.info("EDJOIN posting emails re-marked: %s", free_contacts.recheck_posting_email_status(db))
         # Gemini reads each new posting's own text for the principal / hiring contact it names.
+        from .models import AILookup
         from .services.generators import pick_recipient
+        from .services.outbox import posted_recently
+        applied = applied_job_ids(db)
+        read_before = set(db.scalars(select(AILookup.job_id).where(AILookup.detail == "posting text read")))
         found = 0
-        for job in db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE",
-                                                Job.date_discovered >= datetime.utcnow() - timedelta(days=2))).all():
-            if not pick_recipient(job)[0]:
-                found += len(free_contacts.contacts_from_posting(db, http, job))
+        for job in db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE")).all():
+            # Recent, not-applied jobs with no usable contact; each posting is read once.
+            if job.id in applied or job.id in read_before or not posted_recently(job) or pick_recipient(job)[0]:
+                continue
+            found += len(free_contacts.contacts_from_posting(db, http, job))
+            db.add(AILookup(job_id=job.id, school_id=job.school_id, district_id=job.district_id, status="DONE",
+                            detail="posting text read"))
+            db.commit()
         log.info("Contacts read from posting text (Gemini): %s", found)
         log.info("Posting emails on the district's own domain confirmed: %s", free_contacts.confirm_posting_emails(db, http))
-        res = free_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=2))
+        res = free_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=60))
         log.info("Free contact finder (official websites%s): %s", " + Gemini" if free_contacts.GEMINI_KEY else "", res)
         if AI_FINDER:   # paid Claude lookup - only if an ANTHROPIC_API_KEY was added
             from .services import ai_contacts
-            log.info("Claude contact finder: %s", ai_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=2)))
+            log.info("Claude contact finder: %s", ai_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=60)))
         added = outbox.queue_new(db)
         log.info("Outbox: %s new email(s) prepared", added)
         if notify_new:

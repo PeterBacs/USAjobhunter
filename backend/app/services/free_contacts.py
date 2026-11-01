@@ -210,10 +210,14 @@ def run_for_new_jobs(db, client_http, since: datetime) -> dict:
         key = job.school_id or ("d", job.district_id)
         if job.id in applied or key in seen_keys or not job.district or not job.district.website:
             continue
+        from .outbox import posted_recently
+        if not posted_recently(job):
+            continue   # only recent postings can get an application email, so only those are worth the lookup
         p, _ = school_principal(job)
         if p and contact_svc.email_usable(p):
             continue
-        q = select(func.count()).select_from(AILookup).where(AILookup.created_at >= cut)
+        q = select(func.count()).select_from(AILookup).where(AILookup.created_at >= cut,
+                                                             AILookup.detail.is_distinct_from("posting text read"))
         q = q.where(AILookup.school_id == job.school_id) if job.school_id else q.where(AILookup.district_id == job.district_id)
         if db.scalar(q):
             continue

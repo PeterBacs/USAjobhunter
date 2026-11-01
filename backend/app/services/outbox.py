@@ -123,8 +123,8 @@ def queue_new(db) -> int:
             e.error = "Skipped automatically: the posting closed" if e.job.job_status == "CLOSED" else "Skipped automatically: you already applied"
     refresh_greetings(db)
     added = 0
-    jobs = db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE",
-                                        Job.date_discovered >= since)).all()
+    # Every open job not marked applied is considered; posted_recently() below keeps it to the last 15 days.
+    jobs = db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE")).all()
     for job in jobs:
         if job.id in applied or job.id in queued_jobs:
             continue
