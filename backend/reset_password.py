@@ -28,18 +28,19 @@ def set_password(engine_url: str | None, email: str | None, pw_hash: str) -> str
 def main() -> int:
     from app.auth import hash_password
     print("USA Job Hunter - set a new password\n")
-    pw = getpass.getpass("New password (at least 8 characters, typing hidden): ")
+    print("Your typing is visible so you can check it.\n")
+    pw = input("New password (at least 8 characters): ").strip()
     if len(pw) < 8:
         print("Too short - nothing changed.")
         return 2
-    if getpass.getpass("Type it again: ") != pw:
+    if input("Type it again: ").strip() != pw:
         print("The two passwords don't match - nothing changed.")
         return 2
     h = hash_password(pw)
     email = set_password(None, None, h)
     print(f"\nThis computer: password changed for {email}." if email else "\nThis computer: no account found.")
     print("\nAlready uploaded your data online? Paste the DATABASE_URL to change it there too,")
-    url = getpass.getpass("or just press Enter to skip (typing hidden): ").strip().strip('"').strip("'")
+    url = input("or just press Enter to skip: ").strip().strip('"').strip("'")
     if url.startswith("DATABASE_URL="):
         url = url.split("=", 1)[1].strip().strip('"')
     if url:
@@ -50,7 +51,7 @@ def main() -> int:
             print(f"Online: couldn't connect ({type(e).__name__}). Nothing changed online.")
     # Prove it: type the password once more and check it against what was just saved.
     from app.auth import check_password
-    test = getpass.getpass("\nTest it - type the new password once more (hidden): ")
+    test = input("\nTest it - type the new password once more: ").strip()
     print(f"You typed {len(test)} characters; the new password has {len(pw)}.")
     print("OK - this is the password to use on the website." if check_password(test, h)
           else "NO MATCH - that isn't the new password. Run this tool again and type slowly.")
