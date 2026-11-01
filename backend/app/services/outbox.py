@@ -6,6 +6,7 @@ the school's real name). The user is notified and decides per email: Approve & s
 Approved emails go out from the user's own Gmail (an app password the user entered); the job is then marked applied.
 """
 import mimetypes
+import re
 import smtplib
 import ssl
 from datetime import datetime, timedelta
@@ -23,6 +24,7 @@ from .ingest import profile_dict
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 NEW_WINDOW_DAYS = 7          # when turned on, openings found in the last 7 days count as "new"
 SAME_ADDRESS_DAYS = 30       # never queue a second email to the same principal within 30 days
+MATH_TITLE = re.compile(r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc", re.I)
 
 
 def settings(user: User | None) -> dict:
@@ -72,6 +74,9 @@ def queue_new(db) -> int:
     profile = profile_dict(db)
     # Waiting emails whose posting closed, or whose job was applied to another way, are set aside automatically.
     for e in db.scalars(select(OutboxEmail).where(OutboxEmail.user_id == user.id, OutboxEmail.status.in_(["PENDING", "FAILED"]))):
+        if e.job and not MATH_TITLE.search(e.job.job_title or ""):
+            e.status, e.decided_at, e.error = "SKIPPED", datetime.utcnow(), "Skipped automatically: not a math teaching job"
+            continue
         if e.job and (e.job.job_status == "CLOSED" or e.job_id in applied):
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: the posting closed" if e.job.job_status == "CLOSED" else "Skipped automatically: you already applied"
@@ -81,6 +86,8 @@ def queue_new(db) -> int:
     for job in jobs:
         if job.id in applied or job.id in queued_jobs:
             continue
+        if not MATH_TITLE.search(job.job_title or ""):
+            continue  # the email says "the mathematics teaching position" - only math jobs get one
         principal, _link = school_principal(job)
         if not principal or not email_usable(principal):
             continue
