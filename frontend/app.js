@@ -1414,7 +1414,7 @@ window.obApproveAll = async () => {
   const items = S.outbox.items.filter((e) => e.job_status !== "CLOSED");
   if (!items.length) return;
   const mins = Math.ceil((items.length * OB_GAP_MS) / 60000);
-  if (!confirm(`Send all ${items.length} waiting emails from your Gmail?\n\nThey go out one at a time, 30 seconds apart (about ${mins} min), at most 40 per day so Gmail doesn't treat them as spam. Keep this page open; you can stop at any time.\nEach job is marked applied as its email is sent.`)) return;
+  if (!confirm(`Send all ${items.length} waiting emails from your Gmail?\n\nThey go out one at a time, 30 seconds apart (about ${mins} min), at most 200 per day so Gmail doesn't treat them as spam. Keep this page open; you can stop at any time.\nEach job is marked applied as its email is sent.`)) return;
   S.obStop = false;
   const box = $("#obProgress");
   $("#obAll").disabled = true;

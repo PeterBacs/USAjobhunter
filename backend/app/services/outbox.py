@@ -24,7 +24,7 @@ from .ingest import profile_dict
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 NEW_WINDOW_DAYS = 7          # when turned on, openings found in the last 7 days count as "new"
-DAILY_LIMIT = 40             # at most 40 application emails per 24 hours (a burst to strangers looks like spam)
+DAILY_LIMIT = 200            # at most 40 application emails per 24 hours (a burst to strangers looks like spam)
 MATH_TITLE = re.compile(r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc", re.I)
 
 
