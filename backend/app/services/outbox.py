@@ -24,7 +24,7 @@ from .ingest import profile_dict
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 NEW_WINDOW_DAYS = 7          # when turned on, openings found in the last 7 days count as "new"
-SAME_ADDRESS_DAYS = 30       # never queue a second email to the same principal within 30 days
+DAILY_LIMIT = 40             # at most 40 application emails per 24 hours (a burst to strangers looks like spam)
 MATH_TITLE = re.compile(r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc", re.I)
 
 
@@ -139,6 +139,11 @@ def refresh_greetings(db) -> int:
         c = db.get(Contact, e.contact_id) if e.contact_id else None
         if not c or not e.body.startswith("Dear "):
             continue
+        from .generators import calm_case
+        m = re.match(r"^(Application – )(.+?)( – [^–]+)$", e.subject or "")
+        if m and calm_case(m.group(2)) != m.group(2):
+            e.subject = m.group(1) + calm_case(m.group(2)) + m.group(3)   # no ALL-CAPS subjects
+            n += 1
         first, _, rest = e.body.partition("\n")
         new = greeting_for(c)
         if first != new:
@@ -174,10 +179,14 @@ def _smtp_send(cfg: dict, msg: EmailMessage):
 
 def _message(cfg: dict, sender_name: str, to: str, subject: str, body: str, attachment: bytes | None,
              attachment_name: str | None = None) -> EmailMessage:
+    from email.utils import formatdate, make_msgid
     msg = EmailMessage()
     msg["From"] = f"{sender_name} <{cfg.get('gmail_address')}>"
     msg["To"] = to
     msg["Subject"] = subject
+    # Standard headers that spam filters expect on a normal personal email.
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=(cfg.get("gmail_address") or "gmail.com").split("@")[-1])
     msg.set_content(body)
     if attachment:
         name = attachment_name or "Resume.pdf"
@@ -204,6 +213,11 @@ def approve_and_send(db, user: User, item: OutboxEmail) -> OutboxEmail:
                                                  func.lower(OutboxEmail.to_email) == item.to_email.lower()).limit(1))
     if dup:
         raise SendError(f"You already sent an email to {item.to_email}, so this one wasn't sent. Skip it.")
+    sent_today = db.scalar(select(func.count()).select_from(OutboxEmail).where(
+        OutboxEmail.status == "SENT", OutboxEmail.sent_at >= datetime.utcnow() - timedelta(hours=24))) or 0
+    if sent_today >= DAILY_LIMIT:
+        raise SendError(f"Daily limit reached: {DAILY_LIMIT} emails sent in the last 24 hours. The rest wait until tomorrow - "
+                        "spreading applications out keeps your Gmail from being flagged as spam.")
     job = db.get(Job, item.job_id)
     if not job or job.job_status == "CLOSED":
         raise SendError("This posting is closed now, so the email was not sent. Skip it.")

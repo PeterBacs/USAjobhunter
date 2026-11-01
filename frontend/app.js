@@ -1409,14 +1409,14 @@ window.obApprove = async (id, btn) => {
   } catch (err) { toast(err.message, 8000); }
   checkOutbox(false); viewOutbox();
 };
-// Send every waiting email, one at a time and ~15 s apart (a burst of near-identical emails can get a Gmail account
+// Send every waiting email, one at a time and 30 s apart (a burst of near-identical emails can get a Gmail account
 // flagged as spam). Each one is marked applied and moved to Sent, exactly like approving it by hand.
-const OB_GAP_MS = 15000;
+const OB_GAP_MS = 30000;
 window.obApproveAll = async () => {
   const items = S.outbox.items.filter((e) => e.job_status !== "CLOSED");
   if (!items.length) return;
   const mins = Math.ceil((items.length * OB_GAP_MS) / 60000);
-  if (!confirm(`Send all ${items.length} waiting emails from your Gmail?\n\nThey go out one at a time, about 15 seconds apart (about ${mins} min). Keep this page open; you can stop at any time.\nEach job is marked applied as its email is sent.`)) return;
+  if (!confirm(`Send all ${items.length} waiting emails from your Gmail?\n\nThey go out one at a time, 30 seconds apart (about ${mins} min), at most 40 per day so Gmail doesn't treat them as spam. Keep this page open; you can stop at any time.\nEach job is marked applied as its email is sent.`)) return;
   S.obStop = false;
   const box = $("#obProgress");
   $("#obAll").disabled = true;
@@ -1433,7 +1433,10 @@ window.obApproveAll = async () => {
       await api(`/api/outbox/${e.id}/approve`, { method: "POST" });
       sent++;
       if (card) card.style.opacity = ".45";
-    } catch (err) { failed.push(`${e.to_name}: ${err.message}`); }
+    } catch (err) {
+      failed.push(`${e.to_name}: ${err.message}`);
+      if (/Daily limit reached/.test(err.message)) { S.obStop = true; break; }   // the rest wait until tomorrow
+    }
     if (i < items.length - 1 && !S.obStop) await new Promise((r) => setTimeout(r, OB_GAP_MS));
   }
   S.facets = null;

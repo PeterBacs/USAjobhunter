@@ -172,6 +172,19 @@ def greeting_for(contact) -> str:
     return f"Dear {full}," if full else "Dear Principal,"
 
 
+def calm_case(title: str | None) -> str:
+    """'9-12 MATH TEACHER' -> '9-12 Math Teacher' (all-caps subjects look like spam); normal titles are unchanged."""
+    t = (title or "").strip()
+    letters = [ch for ch in t if ch.isalpha()]
+    if letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.7:
+        small = {"and", "or", "of", "the", "for", "in", "at", "to", "a", "an"}
+        words = t.lower().split()
+        cap = lambda w: re.sub(r"[a-z]", lambda m: m.group(0).upper(), w, count=1)   # "(algebra" -> "(Algebra"
+        t = " ".join(w if (i and w in small) else cap(w) for i, w in enumerate(words))
+        t = re.sub(r"\b(Ms|Hs|Es|Ap|Ib|Ela|Stem|Sped|Fte|Cte|Avid)\b", lambda m: m.group(1).upper(), t)
+    return t
+
+
 def _possessive(name: str) -> str:
     return name + ("’" if name.endswith("s") else "’s")
 
@@ -192,7 +205,7 @@ def application_email(job, profile: dict) -> dict:
         greeting = "Dear Principal,"
         greeting_note = "The school's principal hasn't been confirmed from an official source, so the greeting is \"Dear Principal,\" (no name guessed)."
     school = _place(job)
-    subject = f"Application – {job.job_title} – {name}"
+    subject = f"Application – {calm_case(job.job_title)} – {name}"
     c = rec.get("contact") if rec.get("recommended") else None
     to = c["email"] if c and c.get("email") and c.get("email_status") == "VERIFIED" and c.get("email_usable") else None
     from .contacts import email_usable
