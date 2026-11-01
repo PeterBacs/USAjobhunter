@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 .vercel/
 .claude/
+
+.vercel
+.env*
+!.env.example
