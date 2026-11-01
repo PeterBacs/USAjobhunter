@@ -60,6 +60,22 @@ def resume_bytes(r: Resume) -> bytes:
     return r.content if r.content else Path(r.stored_path).read_bytes()
 
 
+def applied_contact_emails(db) -> set[str]:
+    """Addresses on jobs you already applied to (MARK APPLIED, Open in Gmail, or an email sent from here)."""
+    from .applied import APPLIED_STAGES
+    return {e.strip().lower() for e in db.scalars(select(Application.contact_email).where(
+        Application.deleted_at.is_(None), Application.contact_email.is_not(None),
+        Application.application_status.in_(APPLIED_STAGES))) if e and "@" in e}
+
+
+def already_contacted(db) -> set[str]:
+    """Everyone who must never get another application email: anyone emailed or waiting in the Outbox,
+    plus the contact of every job you have already applied to."""
+    out = {e.lower() for e in db.scalars(select(OutboxEmail.to_email).where(
+        OutboxEmail.status.in_(["PENDING", "FAILED", "SENDING", "SENT"])))}
+    return out | applied_contact_emails(db)
+
+
 def queue_new(db) -> int:
     """Prepare emails for new openings. Returns how many were added to the Outbox."""
     user = db.scalars(select(User)).first()
@@ -70,8 +86,8 @@ def queue_new(db) -> int:
     applied = applied_job_ids(db, user.id)
     queued_jobs = set(db.scalars(select(OutboxEmail.job_id)))
     # No duplicates: an address that was already emailed (or has an email waiting) is never emailed again.
-    recent_to = {e.lower() for e in db.scalars(select(OutboxEmail.to_email).where(
-        OutboxEmail.status.in_(["PENDING", "FAILED", "SENDING", "SENT"])))}
+    recent_to = already_contacted(db)
+    applied_contacts = applied_contact_emails(db)
     profile = profile_dict(db)
     # Waiting emails whose posting closed, or whose job was applied to another way, are set aside automatically.
     for e in db.scalars(select(OutboxEmail).where(OutboxEmail.user_id == user.id, OutboxEmail.status.in_(["PENDING", "FAILED"]))):
@@ -84,6 +100,10 @@ def queue_new(db) -> int:
         if ct and not is_person(ct):
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: not a named person's own mailbox (shared inbox or organisation)"
+            continue
+        if e.to_email.lower() in applied_contacts:
+            e.status, e.decided_at = "SKIPPED", datetime.utcnow()
+            e.error = "Skipped automatically: you already applied to a job with this contact"
             continue
         if e.job and (e.job.job_status == "CLOSED" or e.job_id in applied):
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
@@ -211,6 +231,7 @@ def approve_and_send(db, user: User, item: OutboxEmail) -> OutboxEmail:
         return item   # already sent (or being sent by a double click) - never send twice
     dup = db.scalar(select(OutboxEmail.id).where(OutboxEmail.id != item.id, OutboxEmail.status == "SENT",
                                                  func.lower(OutboxEmail.to_email) == item.to_email.lower()).limit(1))
+    dup = dup or item.to_email.lower() in applied_contact_emails(db)
     if dup:
         raise SendError(f"You already sent an email to {item.to_email}, so this one wasn't sent. Skip it.")
     sent_today = db.scalar(select(func.count()).select_from(OutboxEmail).where(
