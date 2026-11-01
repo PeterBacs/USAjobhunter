@@ -19,7 +19,7 @@ from sqlalchemy import func, select, update
 from ..models import Alert, Application, ApplicationEvent, Job, OutboxEmail, Resume, User
 from .applied import applied_job_ids
 from .contacts import email_usable, ensure_honorific
-from .generators import application_email, business_days_after, pick_recipient, school_principal
+from .generators import application_email, business_days_after, is_target_subject, pick_recipient, school_principal
 from .ingest import profile_dict
 
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
@@ -100,8 +100,8 @@ def queue_new(db) -> int:
     profile = profile_dict(db)
     # Waiting emails whose posting closed, or whose job was applied to another way, are set aside automatically.
     for e in db.scalars(select(OutboxEmail).where(OutboxEmail.user_id == user.id, OutboxEmail.status.in_(["PENDING", "FAILED"]))):
-        if e.job and not MATH_TITLE.search(e.job.job_title or ""):
-            e.status, e.decided_at, e.error = "SKIPPED", datetime.utcnow(), "Skipped automatically: not a math teaching job"
+        if e.job and not is_target_subject(e.job):
+            e.status, e.decided_at, e.error = "SKIPPED", datetime.utcnow(), "Skipped automatically: not a math / STEM teaching job"
             continue
         from ..models import Contact
         from .generators import is_person
@@ -128,8 +128,8 @@ def queue_new(db) -> int:
     for job in jobs:
         if job.id in applied or job.id in queued_jobs:
             continue
-        if not MATH_TITLE.search(job.job_title or ""):
-            continue  # the email says "the mathematics teaching position" - only math jobs get one
+        if not is_target_subject(job):
+            continue  # math, STEM, robotics, engineering, physics, computer science only
         if not posted_recently(job):
             continue  # only postings from the last MAX_POSTING_AGE_DAYS days
         # Principal first; otherwise the hiring contact named in the posting; otherwise the district's HR contact.

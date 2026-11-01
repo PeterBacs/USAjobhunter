@@ -172,6 +172,41 @@ def greeting_for(contact) -> str:
     return f"Dear {full}," if full else "Dear Principal,"
 
 
+# Subjects that get application emails (the Subject filter in Job Hunter), and how each is named in the email.
+SUBJECT_PATTERNS = [
+    ("mathematics", r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc"),
+    ("physics", r"physics"),
+    ("computer science", r"computer science|comp\.? sci|\bcoding\b|programming|\bap csp?\b"),
+    ("robotics", r"robotic"),
+    ("engineering", r"engineer|\bpltw\b|project lead the way"),
+    ("STEM", r"\bstem\b|s\.t\.e\.m"),
+]
+SUBJECT_TITLE = re.compile("|".join(p for _, p in SUBJECT_PATTERNS), re.I)
+SUBJECT_TAGS = {"Mathematics", "Algebra", "Geometry", "Calculus", "Precalculus", "Statistics", "STEM", "Robotics",
+                "Engineering", "Physics", "Computer Science"}
+
+
+def is_target_subject(job) -> bool:
+    """Math, STEM, robotics, engineering, physics or computer science (title, or the subjects the scan tagged)."""
+    return bool(SUBJECT_TITLE.search(job.job_title or "")) or bool(set(job.subjects or []) & SUBJECT_TAGS)
+
+
+def teaching_subject(job) -> str:
+    """'mathematics' / 'physics' / 'computer science' / 'robotics' / 'engineering' / 'STEM' for the email's first line."""
+    title = job.job_title or ""
+    for name, pat in SUBJECT_PATTERNS:
+        if re.search(pat, title, re.I):
+            return name
+    tags = set(job.subjects or [])
+    if tags & {"Mathematics", "Algebra", "Geometry", "Calculus", "Precalculus", "Statistics"}:
+        return "mathematics"
+    for tag, name in (("Physics", "physics"), ("Computer Science", "computer science"), ("Robotics", "robotics"),
+                      ("Engineering", "engineering"), ("STEM", "STEM")):
+        if tag in tags:
+            return name
+    return "mathematics"
+
+
 def calm_case(title: str | None) -> str:
     """'9-12 MATH TEACHER' -> '9-12 Math Teacher' (all-caps subjects look like spam); normal titles are unchanged."""
     t = (title or "").strip()
@@ -223,7 +258,7 @@ def application_email(job, profile: dict) -> dict:
     # the principal's name (from the school's official site) after "Dear Principal" when it is known.
     body = (
         f"{greeting}\n\n"
-        f"I am writing to express my interest in the mathematics teaching position at {school}. I am "
+        f"I am writing to express my interest in the {teaching_subject(job)} teaching position at {school}. I am "
         "passionate about helping students recognize the value of mathematics beyond the classroom by making complex "
         "concepts accessible, relevant, and engaging. My teaching philosophy centers on cultivating curiosity, "
         "confidence, and perseverance while encouraging learners to approach challenges with logical reasoning and a "
