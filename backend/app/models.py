@@ -191,6 +191,7 @@ class Contact(Base, TimestampMixin):
     full_name: Mapped[str | None] = mapped_column(String(255))
     # Only stored when the source itself publishes it (e.g. "Mr. Almasy"); never inferred from a name.
     honorific: Mapped[str | None] = mapped_column(String(20))
+    honorific_checked_at: Mapped[datetime | None] = mapped_column(DateTime)   # official page read for "Mr./Ms. <name>"
     title: Mapped[str | None] = mapped_column(String(255))
     organization: Mapped[str | None] = mapped_column(String(500))
     school_id: Mapped[int | None] = mapped_column(ForeignKey("schools.id"))

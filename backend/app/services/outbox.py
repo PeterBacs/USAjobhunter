@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from ..models import Alert, Application, ApplicationEvent, Job, OutboxEmail, Resume, User
 from .applied import applied_job_ids
-from .contacts import email_usable
+from .contacts import email_usable, ensure_honorific
 from .generators import application_email, business_days_after, school_principal
 from .ingest import profile_dict
 
@@ -80,6 +80,7 @@ def queue_new(db) -> int:
         if e.job and (e.job.job_status == "CLOSED" or e.job_id in applied):
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: the posting closed" if e.job.job_status == "CLOSED" else "Skipped automatically: you already applied"
+    refresh_greetings(db)
     added = 0
     jobs = db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE",
                                         Job.date_discovered >= since)).all()
@@ -94,6 +95,7 @@ def queue_new(db) -> int:
         to = principal.email.strip().lower()
         if to in recent_to:
             continue
+        ensure_honorific(db, _http(), principal)   # "Dear Mr. Moody," only if the school's page writes it
         em = application_email(job, profile)
         db.add(OutboxEmail(user_id=user.id, job_id=job.id, contact_id=principal.id, to_email=to,
                            to_name=principal.full_name, subject=em["subject"], body=em["body"],
@@ -107,6 +109,36 @@ def queue_new(db) -> int:
         added += 1
     db.commit()
     return added
+
+
+_client = None
+
+
+def _http():
+    global _client
+    if _client is None:
+        from .http import PoliteClient
+        _client = PoliteClient()
+    return _client
+
+
+def refresh_greetings(db) -> int:
+    """Update the first line of emails still waiting, once the school's own title for the person is known."""
+    from .generators import greeting_for
+    from ..models import Contact
+    n = 0
+    for e in db.scalars(select(OutboxEmail).where(OutboxEmail.status.in_(["PENDING", "FAILED"]))).all():
+        c = db.get(Contact, e.contact_id) if e.contact_id else None
+        if not c or not e.body.startswith("Dear "):
+            continue
+        ensure_honorific(db, _http(), c)
+        first, _, rest = e.body.partition("\n")
+        new = greeting_for(c)
+        if first != new:
+            e.body = new + "\n" + rest
+            n += 1
+    db.commit()
+    return n
 
 
 class SendError(Exception):

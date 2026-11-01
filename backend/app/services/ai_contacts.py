@@ -231,6 +231,9 @@ def verify_and_save(db, client_http, job: Job, candidates: list[dict], how: str,
             school_id=job.school_id if role == "PRINCIPAL" else None, page_text=text, source_type="OFFICIAL_DISTRICT")
         if not contact or contact.deleted_at:
             continue
+        if not contact.honorific:   # the title the school itself uses on this page (never guessed)
+            contact.honorific = contact_svc.published_honorific(text, name)
+            contact.honorific_checked_at = datetime.utcnow()
         contact.email_status = "VERIFIED"
         contact.mailbox_status, contact.mailbox_checked_at = "OFFICIAL_PAGE", datetime.utcnow()
         contact.mailbox_detail = f"Printed on the official page {final or url} ({how.lower()}, re-checked by the app)"

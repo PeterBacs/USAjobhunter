@@ -292,3 +292,52 @@ def recommend_addressee(job: Job) -> dict:
     return {"recommended": False, "contact": None, "confidence": best.confidence if best else None,
             "why": reason + " Use a neutral greeting rather than guessing a name.",
             "salutation": "Dear Hiring Committee:", "alternatives": alternatives}
+
+
+# ---------------------------------------------------------------- titles (Mr. / Mrs. / Ms. / Dr.)
+_TITLE_RE = r"\b(Mr|Mrs|Ms|Miss|Dr)\.?\s+(?:[A-Z][a-zA-Z'\-]+\.?\s+){{0,2}}{last}\b"   # "Mrs. Lea Ann Frank"
+
+
+def published_honorific(text: str | None, full_name: str | None) -> str | None:
+    """The title the school itself uses for this person, e.g. 'Mrs. Frank' on the school's page.
+    Returns None when the page never writes one, or writes conflicting ones. Never guessed from a first name."""
+    if not text or not full_name:
+        return None
+    parts = [w for w in re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", full_name.strip(), flags=re.I).split()
+             if w.rstrip(".").lower() not in ("jr", "sr", "ii", "iii", "iv")]
+    if not parts or len(parts[-1]) < 2:
+        return None
+    first, last = parts[0], parts[-1]
+    found = set()
+    for m in re.finditer(_TITLE_RE.format(last=re.escape(last)), text):
+        said = m.group(0)
+        near = text[max(0, m.start() - 250):m.end() + 250].lower()
+        # The title must belong to THIS person: written with their full name ("Dr. Cindy Stone"), or with the last
+        # name right next to their full name or the word "principal" (another "Dr. Stone" on the page doesn't count).
+        if first.lower() in said.lower() or (first.lower() + " " + last.lower()) in near or "principal" in near:
+            found.add(m.group(1).capitalize())
+    found = {"Miss" if f == "Miss" else f for f in found}
+    if len(found) == 1:
+        t = found.pop()
+        return t if t == "Miss" else t + "."
+    if found == {"Mrs", "Ms"}:
+        return "Ms."   # both used for the same woman on one page
+    return None
+
+
+def ensure_honorific(db: Session, client_http, contact: Contact) -> str | None:
+    """Read the contact's official page once and store the title the school uses (if any)."""
+    if contact.honorific or contact.honorific_checked_at or not contact.full_name:
+        return contact.honorific
+    from datetime import datetime
+    from bs4 import BeautifulSoup
+    for url in dict.fromkeys(u for u in (contact.source_url, contact.email_source_url) if u):
+        res = client_http.get(url, source_name="Title check")
+        if res.ok:
+            t = published_honorific(BeautifulSoup(res.text, "lxml").get_text(" ", strip=True), contact.full_name)
+            if t:
+                contact.honorific = t
+                break
+    contact.honorific_checked_at = datetime.utcnow()
+    db.commit()
+    return contact.honorific
