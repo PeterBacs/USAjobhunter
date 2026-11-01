@@ -63,9 +63,26 @@ def _page_text(client_http, url: str) -> tuple[str | None, str | None]:
     res = client_http.get(url, source_name="AI contact check")
     if not res.ok:
         return None, None
-    soup = BeautifulSoup(res.text, "lxml")
-    mailtos = " ".join(a.get("href", "")[7:] for a in soup.select('a[href^="mailto:"]'))
-    return soup.get_text(" ", strip=True) + " " + mailtos, res.final_url or url
+    return page_text_from_html(res.text), res.final_url or url
+
+
+def _cf_decode(hexstr: str) -> str:
+    """Cloudflare's email-protection encoding (a simple XOR) - the address the visitor's browser shows."""
+    try:
+        key = int(hexstr[:2], 16)
+        return "".join(chr(int(hexstr[i:i + 2], 16) ^ key) for i in range(2, len(hexstr), 2))
+    except ValueError:
+        return ""
+
+
+def page_text_from_html(html: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+    extra = [a.get("href", "")[7:].split("?")[0] for a in soup.select('a[href^="mailto:"]')]
+    for el in soup.select("[data-cfemail]"):
+        extra.append(_cf_decode(el.get("data-cfemail", "")))
+    for a in soup.select('a[href*="/cdn-cgi/l/email-protection#"]'):
+        extra.append(_cf_decode(a.get("href", "").split("#", 1)[-1]))
+    return soup.get_text(" ", strip=True) + " " + " ".join(e for e in extra if e)
 
 
 def _ask_claude(job: Job, school: str | None, district: str | None, sites: list[str]) -> dict:
@@ -112,6 +129,17 @@ def _ask_claude(job: Job, school: str | None, district: str | None, sites: list[
     return data
 
 
+def email_matches_name(email: str, name: str) -> bool:
+    """The mailbox should be the person's own: its first part contains their last name, or their first name."""
+    local = re.sub(r"[^a-z]", "", email.split("@", 1)[0].lower())
+    parts = [re.sub(r"[^a-z]", "", p.lower()) for p in re.sub(r"\b(dr|mr|mrs|ms|miss)\.?\s+", "", name, flags=re.I).split()]
+    parts = [p for p in parts if len(p) >= 2]
+    if not parts:
+        return False
+    first, last = parts[0], parts[-1]
+    return (len(last) >= 3 and last[:max(4, min(len(last), 4))] in local) or (len(first) >= 3 and first in local)
+
+
 def lookups_today(db) -> int:
     return db.scalar(select(func.count()).select_from(AILookup).where(
         AILookup.created_at >= datetime.utcnow() - timedelta(days=1))) or 0
@@ -145,8 +173,24 @@ def find_contacts(db, client_http, job: Job) -> dict:
         row.status, row.detail = "ERROR", "Couldn't reach the Claude API"
         db.commit()
         return {"ok": False, "error": row.detail, "kept": []}
+    kept, rejected = verify_and_save(db, client_http, job, (data.get("contacts") or [])[:6], how="Found with AI web search")
+    row.status = "DONE"
+    row.result = {"kept": kept, "rejected": rejected, "usage": data.get("usage")}
+    row.detail = f"{len(kept)} kept, {len(rejected)} rejected"
+    db.commit()
+    return {"ok": True, "kept": kept, "rejected": rejected}
+
+
+def verify_and_save(db, client_http, job: Job, candidates: list[dict], how: str, pages: dict | None = None) -> tuple[list, list]:
+    """Keep a candidate contact only when the app itself confirms it on the official page (rules in the module doc).
+    `pages` may hold already-fetched {url: (text, final_url)} to avoid fetching again."""
+    from .generators import _real_school_name
+    school = _real_school_name(job)
+    district = job.district.name if job.district else job.employer_name
+    sites = [s for s in [job.school.website if job.school else None, job.district.website if job.district else None] if s]
+    names = [n for n in [district, job.employer_name, school] if n]
     kept, rejected = [], []
-    for c in (data.get("contacts") or [])[:6]:
+    for c in candidates:
         role = str(c.get("role") or "").upper()
         email = str(c.get("email") or "").strip().lower()
         url = str(c.get("source_url") or "").strip()
@@ -161,7 +205,7 @@ def find_contacts(db, client_http, job: Job) -> dict:
         elif any(email.endswith("@" + d) or email.endswith("." + d) for d in NOT_SCHOOL_DOMAINS):
             why = "not a school email domain"
         if not why:
-            text, final = _page_text(client_http, url)
+            text, final = pages[url] if pages and url in pages else _page_text(client_http, url)
             host = urlparse(final or url).netloc
             email_dom = email.split("@", 1)[1]
             if not text:
@@ -170,6 +214,8 @@ def find_contacts(db, client_http, job: Job) -> dict:
                 why = "address not printed on the cited page"
             elif name and name.split()[-1].lower() not in text.lower():
                 why = "name not on the cited page"
+            elif not email_matches_name(email, name):
+                why = f"{email} doesn't look like {name}'s own address (it may belong to someone else on the page)"
             elif not _official_for(host, names, sites):
                 why = f"{host} is not the school's or district's own website"
             elif not (_reg_domain(email_dom) == _reg_domain(host) or _official_for(email_dom, names, sites)):
@@ -187,21 +233,17 @@ def find_contacts(db, client_http, job: Job) -> dict:
             continue
         contact.email_status = "VERIFIED"
         contact.mailbox_status, contact.mailbox_checked_at = "OFFICIAL_PAGE", datetime.utcnow()
-        contact.mailbox_detail = f"Printed on the official page {final or url} (found with AI, re-checked by the app)"
+        contact.mailbox_detail = f"Printed on the official page {final or url} ({how.lower()}, re-checked by the app)"
         contact.verification_status = "VERIFIED"
         quote = str(c.get("quote") or "")[:300]
-        contact.reviewer_note = f"Found with AI web search; confirmed on {host}" + (f": “{quote}”" if quote else "")
+        contact.reviewer_note = f"{how}; confirmed on {host}" + (f": “{quote}”" if quote else "")
         # Link to every open vacancy at this school (principal) or district (HR / superintendent).
         same = select(Job).where(Job.is_demo.is_(False), Job.job_status != "CLOSED")
         same = same.where(Job.school_id == job.school_id) if role == "PRINCIPAL" and job.school_id else same.where(Job.district_id == job.district_id) if job.district_id else same.where(Job.id == job.id)
         for j in db.scalars(same).all() or [job]:
             contact_svc.link(db, j, contact, rel, conf, final or url, quote or None)
         kept.append({"role": role, "name": contact.full_name, "email": email, "source_url": final or url})
-    row.status = "DONE"
-    row.result = {"kept": kept, "rejected": rejected, "usage": data.get("usage")}
-    row.detail = f"{len(kept)} kept, {len(rejected)} rejected"
-    db.commit()
-    return {"ok": True, "kept": kept, "rejected": rejected}
+    return kept, rejected
 
 
 def run_for_new_jobs(db, client_http, since: datetime, max_lookups: int | None = None) -> dict:

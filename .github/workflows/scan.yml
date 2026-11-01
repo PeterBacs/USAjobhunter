@@ -30,7 +30,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JH_SECRET_KEY: ${{ secrets.JH_SECRET_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional, paid - leave unset
           JH_GMAIL_ADDRESS: ${{ secrets.JH_GMAIL_ADDRESS }}
           JH_GMAIL_APP_PASSWORD: ${{ secrets.JH_GMAIL_APP_PASSWORD }}
           JH_NOTIFY_EMAIL: ${{ secrets.JH_NOTIFY_EMAIL }}

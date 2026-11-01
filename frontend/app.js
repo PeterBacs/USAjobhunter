@@ -406,7 +406,7 @@ async function openJob(id) {
       <button class="btn good" onclick="markApplied()">MARK APPLIED</button>
       <button class="btn" onclick="verifyNow(this)">RE-VERIFY NOW</button>
       <button class="btn" onclick="verifyContactFlow()">VERIFY CONTACT</button>
-      <button class="btn" onclick="aiFindContacts(this)" title="Claude searches the school's and district's official websites for the principal, HR and superintendent emails. The app keeps only addresses it can re-read on the official page.">FIND EMAIL WITH AI</button>
+      <button class="btn" onclick="aiFindContacts(this)" title="The app searches the school's and district's official website (staff, directory, administration pages) for the principal's and HR's emails. Only addresses printed on the official page are kept.">FIND EMAIL AUTOMATICALLY</button>
       <button class="btn" onclick="markReapplied()" title="Record that you applied to this job again today. It is listed under Re-applied on the Applications page.">${(j.reapplied_dates || []).length ? `RE-APPLIED ✓ (${j.reapplied_dates.length}×)` : "RE-APPLIED"}</button>
     </div></div>
   <div class="db">
@@ -511,17 +511,17 @@ window.markReapplied = async () => {
   reopen();
 };
 window.aiFindContacts = async (btn) => {
-  btn.disabled = true; btn.textContent = "Searching official sites… (up to 2 min)";
+  btn.disabled = true; btn.textContent = "Searching the official website… (up to 1 min)";
   try {
     const r = await api(`/api/jobs/${J().id}/ai-contacts`, { method: "POST" });
     const kept = r.kept || [], rej = r.rejected || [];
-    openModal(`<h2>AI email search</h2>
+    openModal(`<h2>Automatic email search</h2>
       ${kept.length ? `<p class="small">Confirmed on the official website and saved:</p><ul class="checks">${kept.map((k) => `<li><span class="ok">✓</span><span><b>${esc(k.name || "")}</b> (${esc(title(k.role))}) — ${esc(k.email)}<br><a class="tiny" target="_blank" rel="noopener" href="${esc(k.source_url)}">${esc(k.source_url)}</a></span></li>`).join("")}</ul>`
         : `<p class="small">No email could be confirmed on the school's or district's official website.</p>`}
       ${rej.length ? `<details style="margin-top:8px"><summary class="small">Not saved (${rej.length})</summary><ul class="checks">${rej.map((x) => `<li><span class="no">✕</span><span>${esc(x.email || "")} — ${esc(x.why)}</span></li>`).join("")}</ul></details>` : ""}
       ${r.outbox_added ? `<div class="notice small" style="margin-top:8px">📨 ${r.outbox_added} application email${r.outbox_added === 1 ? "" : "s"} prepared in the Outbox for your approval.</div>` : ""}
       <div class="row" style="margin-top:10px"><button class="btn primary" onclick="closeModal();reopen()">Done</button></div>`);
-  } catch (e) { toast(e.message, 7000); btn.disabled = false; btn.textContent = "FIND EMAIL WITH AI"; }
+  } catch (e) { toast(e.message, 7000); btn.disabled = false; btn.textContent = "FIND EMAIL AUTOMATICALLY"; }
 };
 window.verifyNow = async (btn) => { if (btn) { btn.disabled = true; btn.textContent = "Checking…"; } const r = await api(`/api/jobs/${J().id}/verify`, { method: "POST" }); toast(`${r.job_status}: ${r.reason}`, 5000); await reopen(); };
 window.copyContact = () => {

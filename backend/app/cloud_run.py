@@ -36,12 +36,13 @@ def after_scan(started: datetime, notify_new: bool) -> None:
     from .config import AI_FINDER
     db = SessionLocal()
     try:
-        if AI_FINDER:
+        from .services import free_contacts
+        log.info("Posting emails on the district's own domain confirmed: %s", free_contacts.confirm_posting_emails(db))
+        res = free_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=2))
+        log.info("Free contact finder (official websites%s): %s", " + Gemini" if free_contacts.GEMINI_KEY else "", res)
+        if AI_FINDER:   # paid Claude lookup - only if an ANTHROPIC_API_KEY was added
             from .services import ai_contacts
-            res = ai_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=2))
-            log.info("AI contact finder: %s", res)
-        else:
-            log.info("AI contact finder off (no ANTHROPIC_API_KEY)")
+            log.info("Claude contact finder: %s", ai_contacts.run_for_new_jobs(db, PoliteClient(), since=datetime.utcnow() - timedelta(days=2)))
         added = outbox.queue_new(db)
         log.info("Outbox: %s new email(s) prepared", added)
         if notify_new:

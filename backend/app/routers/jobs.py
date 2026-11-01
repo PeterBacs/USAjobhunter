@@ -504,18 +504,22 @@ def set_org_urls(job_id: int, body: OrgUrls, db: Session = Depends(get_db), user
 
 @router.post("/{job_id}/ai-contacts")
 def ai_contacts(job_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    """Find the principal / HR / superintendent email with Claude + web search. Only addresses the app itself
-    re-reads on the school's or district's official website are saved."""
+    """Find the principal / HR email automatically: the app walks the official school / district website (free,
+    with the free Gemini model reading the pages when GEMINI_API_KEY is set; Claude only if a paid key was added).
+    Only addresses the app re-reads on the official page are saved."""
     from ..config import AI_FINDER
-    if not AI_FINDER:
-        raise HTTPException(400, "The AI email finder needs an ANTHROPIC_API_KEY (Claude API key) in the app settings.")
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404)
-    from ..services import ai_contacts as ai
-    res = ai.find_contacts(db, PoliteClient(), job)
-    if not res.get("ok"):
-        raise HTTPException(502, res.get("error") or "AI lookup failed")
+    from ..services import free_contacts
+    res = free_contacts.find_contacts(db, PoliteClient(), job)
+    if not any(k["role"] == "PRINCIPAL" for k in res.get("kept") or []) and AI_FINDER:
+        from ..services import ai_contacts as ai
+        r2 = ai.find_contacts(db, PoliteClient(), job)
+        res = {"ok": True, "kept": (res.get("kept") or []) + (r2.get("kept") or []),
+               "rejected": (res.get("rejected") or []) + (r2.get("rejected") or [])}
+    if not res.get("ok") and not res.get("kept"):
+        raise HTTPException(400, res.get("error") or "Lookup failed")
     try:
         from ..services import outbox
         res["outbox_added"] = outbox.queue_new(db)
