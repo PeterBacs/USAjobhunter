@@ -25,6 +25,15 @@ from .ingest import profile_dict
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 465
 NEW_WINDOW_DAYS = 7          # when turned on, openings found in the last 7 days count as "new"
 DAILY_LIMIT = 200            # at most 200 application emails per 24 hours (a burst to strangers looks like spam)
+MAX_POSTING_AGE_DAYS = 15    # only email about jobs the school posted in the last 15 days
+
+
+def posted_recently(job) -> bool:
+    """The school posted it within the last MAX_POSTING_AGE_DAYS days (if no posting date is published, the day the
+    app first found it is used)."""
+    from datetime import date
+    posted = job.date_posted or (job.date_discovered.date() if job.date_discovered else None)
+    return bool(posted) and (date.today() - posted).days <= MAX_POSTING_AGE_DAYS
 MATH_TITLE = re.compile(r"math|algebra|geometr|calculus|statistic|trigonometr|pre-?calc", re.I)
 
 
@@ -101,6 +110,10 @@ def queue_new(db) -> int:
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: not a named person's own mailbox (shared inbox or organisation)"
             continue
+        if e.job and not posted_recently(e.job):
+            e.status, e.decided_at = "SKIPPED", datetime.utcnow()
+            e.error = f"Skipped automatically: posted more than {MAX_POSTING_AGE_DAYS} days ago"
+            continue
         if e.to_email.lower() in applied_contacts:
             e.status, e.decided_at = "SKIPPED", datetime.utcnow()
             e.error = "Skipped automatically: you already applied to a job with this contact"
@@ -117,6 +130,8 @@ def queue_new(db) -> int:
             continue
         if not MATH_TITLE.search(job.job_title or ""):
             continue  # the email says "the mathematics teaching position" - only math jobs get one
+        if not posted_recently(job):
+            continue  # only postings from the last MAX_POSTING_AGE_DAYS days
         # Principal first; otherwise the hiring contact named in the posting; otherwise the district's HR contact.
         principal, role, _link = pick_recipient(job)
         if not principal:
