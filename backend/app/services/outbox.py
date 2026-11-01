@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from ..models import Alert, Application, ApplicationEvent, Job, OutboxEmail, Resume, User
 from .applied import applied_job_ids
@@ -68,9 +68,9 @@ def queue_new(db) -> int:
     since = datetime.fromisoformat(cfg.get("since") or datetime.utcnow().isoformat())
     applied = applied_job_ids(db, user.id)
     queued_jobs = set(db.scalars(select(OutboxEmail.job_id)))
-    recent_cut = datetime.utcnow() - timedelta(days=SAME_ADDRESS_DAYS)
+    # No duplicates: an address that was already emailed (or has an email waiting) is never emailed again.
     recent_to = {e.lower() for e in db.scalars(select(OutboxEmail.to_email).where(
-        OutboxEmail.created_at >= recent_cut, OutboxEmail.status.in_(["PENDING", "SENT"])))}
+        OutboxEmail.status.in_(["PENDING", "FAILED", "SENDING", "SENT"])))}
     profile = profile_dict(db)
     # Waiting emails whose posting closed, or whose job was applied to another way, are set aside automatically.
     for e in db.scalars(select(OutboxEmail).where(OutboxEmail.user_id == user.id, OutboxEmail.status.in_(["PENDING", "FAILED"]))):
@@ -95,7 +95,6 @@ def queue_new(db) -> int:
         to = principal.email.strip().lower()
         if to in recent_to:
             continue
-        ensure_honorific(db, _http(), principal)   # "Dear Mr. Moody," only if the school's page writes it
         em = application_email(job, profile)
         db.add(OutboxEmail(user_id=user.id, job_id=job.id, contact_id=principal.id, to_email=to,
                            to_name=principal.full_name, subject=em["subject"], body=em["body"],
@@ -131,7 +130,6 @@ def refresh_greetings(db) -> int:
         c = db.get(Contact, e.contact_id) if e.contact_id else None
         if not c or not e.body.startswith("Dear "):
             continue
-        ensure_honorific(db, _http(), c)
         first, _, rest = e.body.partition("\n")
         new = greeting_for(c)
         if first != new:
@@ -187,8 +185,12 @@ def send_test(db, user: User) -> str:
 
 def approve_and_send(db, user: User, item: OutboxEmail) -> OutboxEmail:
     """Send one approved email, then record the application. Checks the posting is still open first."""
-    if item.status == "SENT":
-        return item
+    if item.status in ("SENT", "SENDING"):
+        return item   # already sent (or being sent by a double click) - never send twice
+    dup = db.scalar(select(OutboxEmail.id).where(OutboxEmail.id != item.id, OutboxEmail.status == "SENT",
+                                                 func.lower(OutboxEmail.to_email) == item.to_email.lower()).limit(1))
+    if dup:
+        raise SendError(f"You already sent an email to {item.to_email}, so this one wasn't sent. Skip it.")
     job = db.get(Job, item.job_id)
     if not job or job.job_status == "CLOSED":
         raise SendError("This posting is closed now, so the email was not sent. Skip it.")
@@ -199,8 +201,20 @@ def approve_and_send(db, user: User, item: OutboxEmail) -> OutboxEmail:
     if item.attach_resume and not resume:
         raise SendError("No résumé uploaded. Upload it with UPLOAD RESUME, or untick “Attach my résumé”.")
     sender = profile_dict(db).get("full_name") or "Applicant"
-    _smtp_send(cfg, _message(cfg, sender, item.to_email, item.subject, item.body,
+    # Claim it in one database step before sending, so two clicks at the same moment can't both send it.
+    claimed = db.execute(update(OutboxEmail).where(OutboxEmail.id == item.id, OutboxEmail.status.in_(["PENDING", "FAILED"]))
+                         .values(status="SENDING")).rowcount
+    db.commit()
+    db.refresh(item)
+    if not claimed:
+        return item
+    try:
+        _smtp_send(cfg, _message(cfg, sender, item.to_email, item.subject, item.body,
                              resume_bytes(resume) if resume else None, resume.filename if resume else None))
+    except SendError:
+        item.status = "PENDING"   # not sent - can be approved again
+        db.commit()
+        raise
     now = datetime.utcnow()
     item.status, item.sent_at, item.decided_at, item.error = "SENT", now, now, None
     # Record it as an application (same as MARK APPLIED), with the email that was sent.

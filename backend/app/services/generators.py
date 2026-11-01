@@ -121,12 +121,8 @@ def school_principal(job):
 
 
 def greeting_for(contact) -> str:
-    """'Dear Mr. Moody,' when the school itself writes the person's title (Mr. / Mrs. / Ms. / Dr.);
-    otherwise 'Dear Lea Ann Frank,'. A title is never guessed from a first name."""
+    """Always the person's complete name, with no title: 'Dear Lea Ann Frank,' (the user's choice - safest)."""
     full = re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", re.sub(r"\s+", " ", contact.full_name or "").strip())
-    if contact.honorific and full:
-        parts = [w for w in full.split() if w.rstrip(".").lower() not in ("jr", "sr", "ii", "iii", "iv")]
-        return f"Dear {contact.honorific} {parts[-1] if parts else full.split()[-1]},"
     return f"Dear {full}," if full else "Dear Principal,"
 
 
@@ -141,10 +137,8 @@ def application_email(job, profile: dict) -> dict:
     if principal:
         greeting = greeting_for(principal)
         pname = re.sub(r"^(Dr|Mr|Mrs|Ms|Miss)\.?\s+", "", re.sub(r"\s+", " ", principal.full_name).strip())
-        how = (f"the title {principal.honorific} as the school itself writes it" if principal.honorific
-               else "the full name, because the school's page doesn't say Mr. / Ms. (a title is never guessed from a first name)")
-        greeting_note = (f"Greeting to the school's principal, {pname} (named in the official source"
-                         + (f": {plink.evidence_url}" if plink.evidence_url else "") + f"), using {how}.")
+        greeting_note = (f"Greeting to the school's principal, {pname}, by complete name (named in the official source"
+                         + (f": {plink.evidence_url}" if plink.evidence_url else "") + ").")
     else:
         greeting = "Dear Principal,"
         greeting_note = "The school's principal hasn't been confirmed from an official source, so the greeting is \"Dear Principal,\" (no name guessed)."
