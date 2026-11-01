@@ -48,7 +48,14 @@ def main() -> int:
             print(f"Online: password changed for {email2}." if email2 else "Online: no account there yet - upload your data first; it will carry the new password.")
         except Exception as e:
             print(f"Online: couldn't connect ({type(e).__name__}). Nothing changed online.")
-    print("\nSign in with your email and the new password.")
+    # Prove it: type the password once more and check it against what was just saved.
+    from app.auth import check_password
+    test = getpass.getpass("\nTest it - type the new password once more (hidden): ")
+    print(f"You typed {len(test)} characters; the new password has {len(pw)}.")
+    print("OK - this is the password to use on the website." if check_password(test, h)
+          else "NO MATCH - that isn't the new password. Run this tool again and type slowly.")
+    print("\nSign in with pjfreelance02@gmail.com and the new password. On the website, clear the password box first")
+    print("(the browser may fill in an old saved password) and type it by hand.")
     return 0
 
 
