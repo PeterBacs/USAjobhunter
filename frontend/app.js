@@ -1333,7 +1333,9 @@ async function viewOutbox() {
               ${st.app_password_set ? `<button class="btn sm danger" id="obPwDel">Remove app password</button>` : ""}</div></div>
         </div></details></div>
     <div class="row" style="gap:6px;margin-bottom:10px">${[["PENDING", "Waiting for approval", (c.PENDING || 0) + (c.FAILED || 0)], ["SENT", "Sent", c.SENT || 0], ["SKIPPED", "Skipped", c.SKIPPED || 0]]
-      .map(([k, l, n]) => `<button class="btn ${tab === k ? "primary" : ""}" data-tab="${k}">${l} <span class="badge ${tab === k ? "" : "b-info"}">${n}</span></button>`).join("")}</div>
+      .map(([k, l, n]) => `<button class="btn ${tab === k ? "primary" : ""}" data-tab="${k}">${l} <span class="badge ${tab === k ? "" : "b-info"}">${n}</span></button>`).join("")}
+      ${tab === "PENDING" && d.items.length ? `<span class="grow"></span><button class="btn good" id="obAll" ${ready ? "" : "disabled title=\"Connect your Gmail first\""}>✓ Approve &amp; send all (${d.items.filter((e) => e.job_status !== "CLOSED").length})</button>` : ""}</div>
+    <div id="obProgress"></div>
     <div id="obList" class="grid" style="gap:12px"></div>`;
   $("#obList").innerHTML = d.items.map((e) => outboxCard(e, tab, ready)).join("") || `<div class="card empty"><b>${tab === "PENDING" ? "No emails waiting" : tab === "SENT" ? "Nothing sent yet" : "Nothing skipped"}</b>
     ${tab === "PENDING" ? (st.enabled ? "New openings with a confirmed principal email will appear here after scans, and you'll be notified." : "Tick “Auto-prepare emails for new openings” above to start.") : ""}</div>`;
@@ -1344,6 +1346,7 @@ async function viewOutbox() {
     checkOutbox(false); viewOutbox();
   };
   $("#obEnabled").onchange = (e) => saveSettings({ enabled: e.target.checked }, e.target.checked ? "Auto-prepare is on" : "Auto-prepare is off");
+  if ($("#obAll")) $("#obAll").onclick = obApproveAll;
   $("#obSave").onclick = () => {
     const body = { gmail_address: $("#obAddr").value, attach_resume: $("#obResume").checked };
     if ($("#obPw").value.trim()) body.app_password = $("#obPw").value;
@@ -1405,6 +1408,40 @@ window.obApprove = async (id, btn) => {
     return;
   } catch (err) { toast(err.message, 8000); }
   checkOutbox(false); viewOutbox();
+};
+// Send every waiting email, one at a time and ~15 s apart (a burst of near-identical emails can get a Gmail account
+// flagged as spam). Each one is marked applied and moved to Sent, exactly like approving it by hand.
+const OB_GAP_MS = 15000;
+window.obApproveAll = async () => {
+  const items = S.outbox.items.filter((e) => e.job_status !== "CLOSED");
+  if (!items.length) return;
+  const mins = Math.ceil((items.length * OB_GAP_MS) / 60000);
+  if (!confirm(`Send all ${items.length} waiting emails from your Gmail?\n\nThey go out one at a time, about 15 seconds apart (about ${mins} min). Keep this page open; you can stop at any time.\nEach job is marked applied as its email is sent.`)) return;
+  S.obStop = false;
+  const box = $("#obProgress");
+  $("#obAll").disabled = true;
+  let sent = 0, failed = [];
+  for (let i = 0; i < items.length && !S.obStop; i++) {
+    const e = items[i], card = $(`[data-ob="${e.id}"]`);
+    box.innerHTML = `<div class="notice small" style="margin-bottom:10px"><b>Sending ${i + 1} of ${items.length}:</b> ${esc(e.to_name || "")} — ${esc(e.job_title || "")}
+      <div style="height:6px;background:var(--surface-2);border-radius:4px;margin:8px 0"><div style="height:6px;width:${Math.round((i / items.length) * 100)}%;background:var(--good);border-radius:4px"></div></div>
+      ${sent} sent${failed.length ? `, ${failed.length} not sent` : ""} · <button class="btn sm" onclick="S.obStop=true;this.disabled=true;this.textContent='Stopping…'">Stop</button></div>`;
+    try {
+      if (card && $(".ob-body", card)) {   // send exactly what is in the box (including any edits)
+        await api(`/api/outbox/${e.id}`, { method: "PUT", body: { subject: $(".ob-subj", card).value, body: $(".ob-body", card).value, attach_resume: $(".ob-resume", card).checked } });
+      }
+      await api(`/api/outbox/${e.id}/approve`, { method: "POST" });
+      sent++;
+      if (card) card.style.opacity = ".45";
+    } catch (err) { failed.push(`${e.to_name}: ${err.message}`); }
+    if (i < items.length - 1 && !S.obStop) await new Promise((r) => setTimeout(r, OB_GAP_MS));
+  }
+  S.facets = null;
+  checkOutbox(false);
+  openModal(`<h2>${S.obStop ? "Stopped" : "Done"}</h2><p><b>${sent}</b> email${sent === 1 ? "" : "s"} sent and marked applied.</p>
+    ${failed.length ? `<p class="small"><b>Not sent (${failed.length}):</b></p><ul class="small">${failed.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
+    <div class="row" style="margin-top:10px"><button class="btn primary" onclick="closeModal();location.hash='#/applications'">Open Applications</button>
+    <button class="btn" onclick="closeModal();viewOutbox()">Back to Outbox</button></div>`);
 };
 window.obSkip = async (id) => {
   await api(`/api/outbox/${id}/skip`, { method: "POST" });

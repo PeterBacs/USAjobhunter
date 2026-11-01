@@ -5,6 +5,7 @@ school's mail server confirmed exists gets a ready-to-send email (the user's own
 the school's real name). The user is notified and decides per email: Approve & send, or Skip.
 Approved emails go out from the user's own Gmail (an app password the user entered); the job is then marked applied.
 """
+import logging
 import mimetypes
 import re
 import smtplib
@@ -152,6 +153,10 @@ class SendError(Exception):
 
 
 def _smtp_send(cfg: dict, msg: EmailMessage):
+    import os
+    if os.getenv("JH_FAKE_SEND") == "1":   # testing only: pretend to send, nothing leaves the computer
+        logging.getLogger("jobhunter.outbox").info("FAKE SEND to %s: %s", msg["To"], msg["Subject"])
+        return
     addr, pw = cfg.get("gmail_address"), (cfg.get("app_password") or "").replace(" ", "")
     if not addr or not pw:
         raise SendError("Connect your Gmail first (Gmail address and app password on the Outbox page).")
