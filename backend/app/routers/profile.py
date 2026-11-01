@@ -26,11 +26,17 @@ class Creds(BaseModel):
 
 @router.get("/auth/status")
 def auth_status(db: Session = Depends(get_db)):
-    return {"needs_setup": (db.scalar(select(func.count()).select_from(User)) or 0) == 0}
+    from ..config import ON_VERCEL
+    empty = (db.scalar(select(func.count()).select_from(User)) or 0) == 0
+    # Online, the account is copied from your computer; nobody can create one on the public site.
+    return {"needs_setup": empty and not ON_VERCEL, "awaiting_data": empty and ON_VERCEL}
 
 
 @router.post("/auth/setup")
 def setup(body: Creds, response: Response, db: Session = Depends(get_db)):
+    from ..config import ON_VERCEL
+    if ON_VERCEL:
+        raise HTTPException(403, "Accounts can't be created on the online site.")
     if db.scalar(select(func.count()).select_from(User)):
         raise HTTPException(403, "Already set up - sign in instead")
     if len(body.password) < 8:
