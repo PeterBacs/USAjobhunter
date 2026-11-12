@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import current_user
@@ -12,7 +12,7 @@ from ..services import engineering, scanner
 router = APIRouter(prefix="/api/engineering", tags=["engineering"])
 
 
-def out(r: EngJob) -> dict:
+def out(r: EngJob, snippet: str | None = None) -> dict:
     days = (date.today() - r.posted).days if r.posted else None
     return {"id": r.id, "category": r.category, "title": r.title, "company": r.company, "location": r.location,
             "state": r.state, "remote": r.remote, "url": r.url, "source": r.source, "posted": r.posted.isoformat() if r.posted else None,
@@ -20,7 +20,7 @@ def out(r: EngJob) -> dict:
             "citizenship_required": r.citizenship_required, "phd_required": r.phd_required, "skills": r.skills or [],
             "match_score": r.match_score, "why": (r.match or {}).get("why", []), "gaps": (r.match or {}).get("gaps", []),
             "skill_points": ((r.match or {}).get("breakdown") or {}).get("skills", 0),
-            "snippet": (r.description or "")[:700], "is_saved": r.is_saved,
+            "snippet": snippet if snippet is not None else (r.description or "")[:700], "is_saved": r.is_saved,
             "applied_on": r.applied_on.isoformat() if r.applied_on else None, "job_id": r.job_id,
             "salary_text": r.salary_text, "salary_annual": engineering.annual(r.salary_min, r.salary_max, r.salary_interval),
             "first_seen": r.first_seen.isoformat() if r.first_seen else None,
@@ -33,12 +33,13 @@ def list_jobs(category: str = "INDUSTRY", include_closed: bool = False,
     q = select(EngJob).where(EngJob.category == category.upper())
     if not include_closed:
         q = q.where(EngJob.status == "ACTIVE")
-    rows = db.scalars(q.order_by(EngJob.match_score.desc())).all()
+    # Only the first 700 characters of each description leave the database (not the full text).
+    rows = db.execute(q.add_columns(func.substr(EngJob.description, 1, 700)).order_by(EngJob.match_score.desc())).all()
     last = db.scalars(select(ScanRun).where(ScanRun.kind == "ENG").order_by(ScanRun.id.desc())).first()
-    counts = {c: len(db.scalars(select(EngJob.id).where(EngJob.category == c, EngJob.status == "ACTIVE")).all())
+    counts = {c: db.scalar(select(func.count()).select_from(EngJob).where(EngJob.category == c, EngJob.status == "ACTIVE"))
               for c in ("INDUSTRY", "SOFTWARE", "INSTRUCTOR")}
     companies = sorted({c for _, c in engineering.GREENHOUSE + engineering.LEVER + engineering.ASHBY + engineering.WORKABLE})
-    return {"items": [out(r) for r in rows], "profile": engineering.PROFILE, "counts": counts,
+    return {"items": [out(r, snip or "") for r, snip in rows], "profile": engineering.PROFILE, "counts": counts,
             "skill_options": [label for label, _ in engineering.SKILLS],
             "default_skills": [label for label, _ in engineering.SKILLS if label not in engineering.OPTIONAL_SKILLS],
             "last_scan": {"status": last.status, "finished_at": last.finished_at.isoformat() if last.finished_at else None,

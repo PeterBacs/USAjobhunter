@@ -144,14 +144,14 @@ class Job(Base, TimestampMixin):
     status_reason: Mapped[str | None] = mapped_column(String(500))
     official_job_url: Mapped[str | None] = mapped_column(String(1000))
     application_url: Mapped[str | None] = mapped_column(String(1000))
-    job_description: Mapped[str | None] = mapped_column(Text)
-    requirements: Mapped[str | None] = mapped_column(Text)
-    certification_requirements: Mapped[str | None] = mapped_column(Text)
+    job_description: Mapped[str | None] = mapped_column(Text, deferred=True)   # loaded only when used (saves database transfer)
+    requirements: Mapped[str | None] = mapped_column(Text, deferred=True)   # loaded only when used (saves database transfer)
+    certification_requirements: Mapped[str | None] = mapped_column(Text, deferred=True)   # loaded only when used (saves database transfer)
     j1_status: Mapped[str] = mapped_column(String(40), default="UNKNOWN", index=True)
     j1_evidence: Mapped[list] = mapped_column(JSON, default=list)
     match_score: Mapped[int | None] = mapped_column(Integer, index=True)
     match_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
-    field_evidence: Mapped[dict] = mapped_column(JSON, default=dict)  # field -> {value, source_url, source_type, verification_status, verified_at, confidence}
+    field_evidence: Mapped[dict] = mapped_column(JSON, default=dict, deferred=True)  # field -> {value, source_url, source_type, verification_status, verified_at, confidence}
     verification_status: Mapped[str] = mapped_column(String(30), default="UNKNOWN")
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -430,7 +430,7 @@ class EngJob(Base, TimestampMixin):
     remote: Mapped[bool] = mapped_column(Boolean, default=False)
     url: Mapped[str] = mapped_column(String(1000))
     posted: Mapped[date | None] = mapped_column(Date)
-    description: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, deferred=True)   # loaded only when used
     level: Mapped[str] = mapped_column(String(20), default="UNKNOWN")    # ENTRY | MID | SENIOR | UNKNOWN
     years_required: Mapped[int | None] = mapped_column(Integer)
     sponsorship: Mapped[str] = mapped_column(String(20), default="UNKNOWN")  # OFFERED | NOT_OFFERED | UNKNOWN

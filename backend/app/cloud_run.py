@@ -46,7 +46,8 @@ def after_scan(started: datetime, notify_new: bool) -> None:
         applied = applied_job_ids(db)
         read_before = set(db.scalars(select(AILookup.job_id).where(AILookup.detail == "posting text read")))
         found = 0
-        for job in db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE")).all():
+        from .services.outbox import recent_jobs_query
+        for job in db.scalars(recent_jobs_query()).all():
             # Recent, not-applied jobs with no usable contact; each posting is read once.
             if job.id in applied or job.id in read_before or not posted_recently(job) or pick_recipient(job)[0]:
                 continue

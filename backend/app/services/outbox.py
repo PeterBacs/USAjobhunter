@@ -28,6 +28,15 @@ DAILY_LIMIT = 200            # at most 200 application emails per 24 hours (a bu
 MAX_POSTING_AGE_DAYS = 15    # only email about jobs the school posted in the last 15 days
 
 
+def recent_jobs_query():
+    """Open jobs posted in the last MAX_POSTING_AGE_DAYS days, filtered inside the database (only those rows are read)."""
+    from datetime import date
+    cut = date.today() - timedelta(days=MAX_POSTING_AGE_DAYS)
+    return select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE",
+                             (Job.date_posted >= cut) | (Job.date_posted.is_(None) &
+                                                         (Job.date_discovered >= datetime.utcnow() - timedelta(days=MAX_POSTING_AGE_DAYS))))
+
+
 def posted_recently(job) -> bool:
     """The school posted it within the last MAX_POSTING_AGE_DAYS days (if no posting date is published, the day the
     app first found it is used)."""
@@ -124,7 +133,7 @@ def queue_new(db) -> int:
     refresh_greetings(db)
     added = 0
     # Every open job not marked applied is considered; posted_recently() below keeps it to the last 15 days.
-    jobs = db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE")).all()
+    jobs = db.scalars(recent_jobs_query()).all()
     for job in jobs:
         if job.id in applied or job.id in queued_jobs:
             continue
