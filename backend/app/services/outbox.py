@@ -91,7 +91,17 @@ def already_contacted(db) -> set[str]:
     plus the contact of every job you have already applied to."""
     out = {e.lower() for e in db.scalars(select(OutboxEmail.to_email).where(
         OutboxEmail.status.in_(["PENDING", "FAILED", "SENDING", "SENT"])))}
+    # Addresses emailed before the database move (kept in the user's settings).
+    user = db.scalars(select(User)).first()
+    out |= {e.lower() for e in ((user.settings or {}).get("blocked_emails") or [])} if user else set()
     return out | applied_contact_emails(db)
+
+
+def emails_cutoff(db):
+    """Jobs found before this moment were already handled (emails sent on Nov 1 before the database move)."""
+    user = db.scalars(select(User)).first()
+    v = ((user.settings or {}).get("email_jobs_found_after") if user else None)
+    return datetime.fromisoformat(v) if v else None
 
 
 def queue_new(db) -> int:
@@ -134,9 +144,12 @@ def queue_new(db) -> int:
     added = 0
     # Every open job not marked applied is considered; posted_recently() below keeps it to the last 15 days.
     jobs = db.scalars(recent_jobs_query()).all()
+    cutoff = emails_cutoff(db)
     for job in jobs:
         if job.id in applied or job.id in queued_jobs:
             continue
+        if cutoff and job.date_discovered and job.date_discovered < cutoff:
+            continue   # found before the database move - its email (if any) was already sent on Nov 1
         if not is_target_subject(job):
             continue  # math, STEM, robotics, engineering, physics, computer science only
         if not posted_recently(job):
