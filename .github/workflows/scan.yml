@@ -1,7 +1,9 @@
 name: USA Job Hunter scans
 
 on:
-  # No automatic schedule: scans run only when started by hand (website button or GitHub "Run workflow").
+  schedule:
+    - cron: "0 */6 * * *"     # scan every 6 hours (8 AM, 2 PM, 8 PM, 2 AM Philippine time)
+    - cron: "30 11 * * *"     # daily checks (11:30 UTC = 7:30 PM Philippine time)
   workflow_dispatch:
     inputs:
       mode:
@@ -36,6 +38,7 @@ jobs:
           JH_APP_URL: https://sniperteacherjob.vercel.app
           JH_DATA_DIR: /tmp/jobhunter
           JH_SCHEDULER: "0"
+          JH_SEND_NOTIFICATIONS: "1"   # email you the new openings and the emails ready for approval
         run: |
           MODE="${{ github.event.inputs.mode }}"
           if [ -z "$MODE" ]; then
