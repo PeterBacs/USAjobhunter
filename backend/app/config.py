@@ -13,7 +13,7 @@ for d in (DATA_DIR, UPLOAD_DIR, DOCUMENT_DIR):
 
 # PostgreSQL in the cloud (Neon via Vercel sets DATABASE_URL / POSTGRES_URL), SQLite on this computer.
 def _database_url() -> str:
-    url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or f"sqlite:///{(DATA_DIR / 'jobhunter.db').as_posix()}"
+    url = os.getenv("JH_DATABASE_URL") or os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or f"sqlite:///{(DATA_DIR / 'jobhunter.db').as_posix()}"
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
     if url.startswith("postgresql://"):

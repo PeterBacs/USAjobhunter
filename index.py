@@ -20,7 +20,7 @@ def setup_pending(path: str = ""):
     return "<h2>USA Job Hunter</h2><p>Setup in progress: the database is not connected yet.</p>"
 
 
-if os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"):
+if os.getenv("JH_DATABASE_URL") or os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"):
     from app.main import app as _jobhunter_app  # noqa: E402
 
     app = _jobhunter_app
