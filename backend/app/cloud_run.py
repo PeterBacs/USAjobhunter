@@ -21,6 +21,7 @@ from .services.http import PoliteClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("jobhunter.cloud")
+NOTIFY = __import__("os").getenv("JH_SEND_NOTIFICATIONS") == "1"   # notification emails to you: off
 
 
 def _status(rid: int) -> str:
@@ -68,10 +69,12 @@ def after_scan(started: datetime, notify_new: bool) -> None:
             applied = applied_job_ids(db)
             new_jobs = [j for j in db.scalars(select(Job).where(Job.is_demo.is_(False), Job.job_status == "ACTIVE",
                                                                 Job.date_discovered >= started)) if j.id not in applied]
-            log.info("New openings this run: %s (email sent: %s)", len(new_jobs), notify.new_openings(db, new_jobs))
+            sent = notify.new_openings(db, new_jobs) if NOTIFY else False   # emails off unless JH_SEND_NOTIFICATIONS=1
+            log.info("New openings this run: %s (email sent: %s)", len(new_jobs), sent)
         waiting = db.scalars(select(OutboxEmail).where(OutboxEmail.status == "PENDING",
                                                        OutboxEmail.created_at >= started)).all()
-        log.info("Emails waiting for approval this run: %s (email sent: %s)", len(waiting), notify.emails_waiting(db, waiting))
+        log.info("Emails waiting for approval this run: %s (email sent: %s)", len(waiting),
+                 notify.emails_waiting(db, waiting) if NOTIFY else False)
     finally:
         db.close()
 

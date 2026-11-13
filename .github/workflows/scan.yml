@@ -1,9 +1,7 @@
 name: USA Job Hunter scans
 
 on:
-  schedule:
-    - cron: "0 */4 * * *"     # scan every 4 hours
-    - cron: "30 11 * * *"     # daily checks (11:30 UTC = 7:30 PM Philippine time)
+  # No automatic schedule: scans run only when started by hand (website button or GitHub "Run workflow").
   workflow_dispatch:
     inputs:
       mode:
